@@ -86,3 +86,9 @@ export const shiftRangeQuery = z
   .refine((v) => daysBetween(v.from, v.to) < MAX_RANGE_DAYS, {
     message: `期間は${MAX_RANGE_DAYS}日以内で指定してください`,
   });
+
+export const gcalSettingsInput = z.object({
+  titleMode: z.enum(["symbol", "workplace"]),
+  workplaceName: z.string().trim().max(40, "バイト先名は40文字までです").nullable(),
+});
+export type GcalSettingsInput = z.infer<typeof gcalSettingsInput>;

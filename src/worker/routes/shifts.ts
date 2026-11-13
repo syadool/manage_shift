@@ -4,6 +4,7 @@ import { shiftInput, shiftRangeQuery, type ShiftInput } from "../../shared/schem
 import { requireAuth } from "../auth/session";
 import { getDb } from "../db/client";
 import { members, shiftCodes, shifts } from "../db/schema";
+import { syncAfterWrite } from "../gcal/sync";
 import type { AppEnv } from "../types";
 import { validate } from "../validate";
 
@@ -41,6 +42,8 @@ async function checkRefs(c: Context<AppEnv>, userId: string, input: ShiftInput) 
 
 export const shiftRoutes = new Hono<AppEnv>()
   .use(requireAuth)
+  // 変更を Google カレンダーに反映する
+  .use(syncAfterWrite)
 
   .get("/", validate("query", shiftRangeQuery), async (c) => {
     const { from, to } = c.req.valid("query");

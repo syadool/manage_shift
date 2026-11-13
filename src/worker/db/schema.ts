@@ -170,3 +170,39 @@ export const imports = sqliteTable(
   },
   (t) => [index("imports_user_created_idx").on(t.userId, t.createdAt)],
 );
+
+/**
+ * Google カレンダー連携。自分のシフトをアプリ専用のカレンダーに書き込む。
+ * リフレッシュトークンは TOKEN_ENCRYPTION_KEY で暗号化して保存する
+ */
+export const gcalConnections = sqliteTable("gcal_connections", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** AES-GCM で暗号化したリフレッシュトークン (base64url) */
+  refreshTokenEnc: text("refresh_token_enc").notNull(),
+  /** アプリが作ったカレンダーの ID。未作成なら null */
+  calendarId: text("calendar_id"),
+  /** reauth_required: トークンが失効・取り消され、再連携が必要 */
+  status: text("status", { enum: ["active", "reauth_required"] }).notNull().default("active"),
+  /**
+   * 未反映の変更の世代。変更のたびに +1 し、同期を始めた時点の値のままなら同期後に 0 に戻す
+   * (同期中に入った変更を取りこぼさないため)
+   */
+  dirty: integer("dirty").notNull().default(0),
+  /** 予定のタイトル: symbol = シフトの記号 / workplace = バイト先名 */
+  titleMode: text("title_mode", { enum: ["symbol", "workplace"] }).notNull().default("symbol"),
+  workplaceName: text("workplace_name"),
+  lastSyncedAt: integer("last_synced_at", { mode: "timestamp" }),
+  lastError: text("last_error"),
+  createdAt: createdAt(),
+});
+
+/** Google の OAuth 認可の state。1回限り・短時間で失効。state 自体は保存せず SHA-256 のみ */
+export const oauthStates = sqliteTable("oauth_states", {
+  id: id(),
+  userId: userRef(),
+  /** PKCE の code_verifier */
+  codeVerifier: text("code_verifier").notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+});

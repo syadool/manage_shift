@@ -42,6 +42,37 @@ npm run dev
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
+## Google カレンダー連携
+
+設定画面から Google カレンダーと連携すると、**自分 (「自分」に設定したメンバー) のシフト**を Google カレンダーに自動で反映します (アプリ → Google の片方向)。
+
+- アプリ専用の「シフト (manageshift)」カレンダーを作り、そこにだけ書き込みます。スコープは `calendar.app.created` (アプリが作ったカレンダーだけ操作できる最小の権限)
+- 予定のタイトルは「シフトの記号」か「バイト先名」を選べます。時間は予定の開始・終了に入ります。説明欄には時間が重なるメンバー名が入ります
+- シフト・メンバー・記号の変更や画像の取り込みを保存すると、すぐに反映します。失敗したもの・件数が多くて残ったものは 15 分ごとの Cron でやり直します
+- 反映するのは 31 日前以降のシフトです。DB の内容と Google 側の予定を照合して追加・更新・削除するので、Google 側で予定やカレンダーを消しても次の反映で元に戻ります
+- リフレッシュトークンは `TOKEN_ENCRYPTION_KEY` で AES-GCM 暗号化して保存します。連携を解除すると専用カレンダーを削除し、トークンを取り消します
+
+### 設定手順
+
+1. [Google Cloud Console](https://console.cloud.google.com/) でプロジェクトを作り、**Google Calendar API** を有効にする
+2. OAuth 同意画面を作成 (外部)。スコープに `https://www.googleapis.com/auth/calendar.app.created` を追加。審査が済むまではテストユーザーに登録した Google アカウント (100 人まで) だけが連携できます
+3. 認証情報 → OAuth クライアント ID (ウェブ アプリケーション) を作成し、承認済みのリダイレクト URI に次を登録
+   - 本番: `https://manageshift.fun/api/gcal/callback`
+   - 開発: `http://localhost:5173/api/gcal/callback`
+4. Secret を登録 (開発は `.dev.vars`)。未設定なら連携機能は表示されません
+
+```bash
+npx wrangler secret put GOOGLE_CLIENT_ID
+```
+
+```bash
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+```
+
+```bash
+openssl rand -base64 32 | npx wrangler secret put TOKEN_ENCRYPTION_KEY
+```
+
 ## デプロイ (Cloudflare)
 
 本番は独自ドメイン **https://manageshift.fun** で公開しています (`wrangler.jsonc` の `routes`)。`workers.dev` とプレビュー URL は無効にしています。
