@@ -29,15 +29,31 @@ npm run dev
 - 型チェック: `npm run typecheck`
 - スキーマ変更後: `npm run db:generate` → `npm run db:migrate:local`
 
-## デプロイ
+## デプロイ (Cloudflare)
+
+初回だけ、自分の PC で次を実行します (Cloudflare アカウントが必要。無料プランで動きます)。
 
 ```bash
-npx wrangler d1 create manage-shift-db   # 出力された database_id を wrangler.jsonc に設定
+npx wrangler login
+npx wrangler d1 create manage-shift-db        # 表示された database_id を wrangler.jsonc に書く
 npx wrangler r2 bucket create manage-shift-images
-npx wrangler secret put ANTHROPIC_API_KEY
+npx wrangler secret put ANTHROPIC_API_KEY     # シフト表画像の読み取りに使う
 npm run db:migrate:remote
 npm run deploy
 ```
+
+2回目以降は `npm run db:migrate:remote` (マイグレーションがあるとき) と `npm run deploy` だけです。
+`npx wrangler deploy --dry-run` で、実際に公開せずに設定を確認できます。
+
+- **パスキーはドメインに結び付きます。** 最初に使うドメイン (`*.workers.dev` か独自ドメイン) を決めてから登録してください。独自ドメインに移すと、パスキーの作り直しが必要です。固定したい場合は `wrangler.jsonc` の `RP_ID` / `RP_ORIGIN` を設定します
+- 画面側のセキュリティヘッダー (CSP など) は `public/_headers`、API 側は Hono の `secureHeaders` で付けています
+
+## ホーム画面に追加 (PWA)
+
+- iPhone: Safari の共有ボタン →「ホーム画面に追加」
+- Android / PC の Chrome: アドレスバーのインストールボタン、またはメニューの「アプリをインストール」
+
+Service Worker (`public/sw.js`) は画面の枠 (HTML・JS・CSS・アイコン) だけをキャッシュします。ログイン状態やシフトなどのデータ (`/api`) はキャッシュしません。電波がないときは「通信できません」と表示します。
 
 ## デザインルール
 
