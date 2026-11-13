@@ -38,11 +38,12 @@ export function Layout() {
         </ul>
       </nav>
 
-      <main className="flex-1 px-3 pt-3 pb-10 md:px-4">
+      <main className="flex-1 px-3 pt-3 pb-[calc(80px+env(safe-area-inset-bottom))] md:px-4 md:pb-10">
         <Outlet />
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 border-t border-ink-100 bg-white md:hidden">
+      {/* iPhone のホームバーと重ならないよう、下に安全領域ぶんの余白を取る */}
+      <nav className="fixed inset-x-0 bottom-0 border-t border-ink-100 bg-white pb-[env(safe-area-inset-bottom)] md:hidden">
         <ul className="grid grid-cols-5">
           {NAV.map(({ to, label, icon: Icon }) => (
             <li key={to}>

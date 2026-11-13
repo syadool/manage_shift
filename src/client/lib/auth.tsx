@@ -6,6 +6,9 @@ export type User = { id: string; displayName: string };
 
 type AuthState = {
   user: User | null | undefined; // undefined = 確認中
+  /** 通信できずにログイン状態を確認できなかった (未ログインとは区別する) */
+  unreachable: boolean;
+  recheck: () => void;
   login: () => Promise<void>;
   register: (displayName: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -36,11 +39,19 @@ export function authErrorMessage(e: unknown): string {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(undefined);
 
-  useEffect(() => {
+  const [unreachable, setUnreachable] = useState(false);
+
+  const recheck = useCallback(() => {
+    setUnreachable(false);
     api<{ user: User }>("/auth/me")
       .then((r) => setUser(r.user))
-      .catch(() => setUser(null));
+      .catch((e) => {
+        // 401 は未ログイン。それ以外 (オフラインやサーバーエラー) はログイン画面にせず、通信できないことを伝える
+        if (e instanceof ApiError && e.status === 401) setUser(null);
+        else setUnreachable(true);
+      });
   }, []);
+  useEffect(recheck, [recheck]);
 
   const login = useCallback(async () => {
     const optionsJSON = await api<Parameters<typeof startAuthentication>[0]["optionsJSON"]>(
@@ -69,7 +80,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
-  return <AuthContext.Provider value={{ user, login, register, logout }}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ user, unreachable, recheck, login, register, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {
