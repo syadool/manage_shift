@@ -9,16 +9,49 @@ const userRef = () =>
     .notNull()
     .references(() => users.id, { onDelete: "cascade" });
 
+/** 認証はパスキー (WebAuthn) のみ。パスワード・メールは保持しない */
 export const users = sqliteTable("users", {
   id: id(),
-  email: text("email").notNull().unique(),
-  passwordHash: text("password_hash").notNull(),
+  /** パスキー登録時に表示される名前 (パスワードマネージャ上の識別用) */
+  displayName: text("display_name").notNull(),
   createdAt: createdAt(),
+});
+
+export const passkeys = sqliteTable(
+  "passkeys",
+  {
+    /** credential ID (base64url) */
+    id: id(),
+    userId: userRef(),
+    /** COSE 公開鍵 (base64url) */
+    publicKey: text("public_key").notNull(),
+    counter: integer("counter").notNull().default(0),
+    transports: text("transports", { mode: "json" }).$type<string[]>(),
+    deviceType: text("device_type", { enum: ["singleDevice", "multiDevice"] }).notNull(),
+    backedUp: integer("backed_up", { mode: "boolean" }).notNull(),
+    /** 利用者が付ける名前 (例: iPhone) */
+    name: text("name").notNull(),
+    createdAt: createdAt(),
+    lastUsedAt: integer("last_used_at", { mode: "timestamp" }),
+  },
+  (t) => [index("passkeys_user_idx").on(t.userId)],
+);
+
+/** WebAuthn のチャレンジ。1回限り・短時間で失効 */
+export const authChallenges = sqliteTable("auth_challenges", {
+  id: id(),
+  challenge: text("challenge").notNull(),
+  kind: text("kind", { enum: ["register", "login", "add"] }).notNull(),
+  /** register: 作成予定のユーザー ID / add: ログイン中のユーザー ID */
+  userId: text("user_id"),
+  displayName: text("display_name"),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
 });
 
 export const sessions = sqliteTable(
   "sessions",
   {
+    /** セッショントークンの SHA-256 (hex)。トークン自体は保存しない */
     id: id(),
     userId: userRef(),
     expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),

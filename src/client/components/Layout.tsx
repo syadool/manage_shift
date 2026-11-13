@@ -14,7 +14,7 @@ export const ICON_PROPS = { size: 16, strokeWidth: 1.5 } as const;
 
 /**
  * PC: 左サイドナビ / スマホ: 下部タブ。
- * 本文とナビのテキストは同じ左端 (px-2 = 16px) から始まる。
+ * 本文の左余白は 24px (はみ出すボタン枠の分を確保)。
  */
 export function Layout() {
   return (
@@ -38,7 +38,7 @@ export function Layout() {
         </ul>
       </nav>
 
-      <main className="flex-1 px-2 pt-3 pb-10 md:px-4">
+      <main className="flex-1 px-3 pt-3 pb-10 md:px-4">
         <Outlet />
       </main>
 

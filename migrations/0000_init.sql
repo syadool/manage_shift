@@ -1,3 +1,12 @@
+CREATE TABLE `auth_challenges` (
+	`id` text PRIMARY KEY NOT NULL,
+	`challenge` text NOT NULL,
+	`kind` text NOT NULL,
+	`user_id` text,
+	`display_name` text,
+	`expires_at` integer NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE `imports` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
@@ -21,6 +30,21 @@ CREATE TABLE `members` (
 );
 --> statement-breakpoint
 CREATE INDEX `members_user_idx` ON `members` (`user_id`);--> statement-breakpoint
+CREATE TABLE `passkeys` (
+	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
+	`public_key` text NOT NULL,
+	`counter` integer DEFAULT 0 NOT NULL,
+	`transports` text,
+	`device_type` text NOT NULL,
+	`backed_up` integer NOT NULL,
+	`name` text NOT NULL,
+	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
+	`last_used_at` integer,
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `passkeys_user_idx` ON `passkeys` (`user_id`);--> statement-breakpoint
 CREATE TABLE `sessions` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
@@ -70,9 +94,6 @@ CREATE INDEX `shifts_user_date_idx` ON `shifts` (`user_id`,`date`);--> statement
 CREATE INDEX `shifts_member_date_idx` ON `shifts` (`member_id`,`date`);--> statement-breakpoint
 CREATE TABLE `users` (
 	`id` text PRIMARY KEY NOT NULL,
-	`email` text NOT NULL,
-	`password_hash` text NOT NULL,
+	`display_name` text NOT NULL,
 	`created_at` integer DEFAULT (unixepoch()) NOT NULL
 );
---> statement-breakpoint
-CREATE UNIQUE INDEX `users_email_unique` ON `users` (`email`);

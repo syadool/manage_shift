@@ -23,5 +23,7 @@
       "bucket_name": "manage-shift-images"
     }
   ],
+  // パスキーの RP ID / オリジン。空ならアクセスされたホストから自動で決める
+  "vars": { "RP_ID": "", "RP_ORIGIN": "" },
   "observability": { "enabled": true }
 }

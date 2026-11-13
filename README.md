@@ -5,6 +5,18 @@
 - Cloudflare Workers (Hono) + Static Assets (React + Vite)
 - D1 (Drizzle ORM) / R2 / Claude API (シフト表画像の読み取り)
 
+## 認証
+
+パスキー (WebAuthn) のみ。パスワード・メールアドレスは扱わない。
+
+- 新規登録は名前を入力してパスキーを作成。ログインはユーザー名入力なしでパスキーを選ぶだけ
+- ユーザー検証 (生体認証/PIN) 必須、discoverable credential 必須
+- チャレンジは 5 分で失効・1 回限り。HttpOnly Cookie でブラウザに紐付け
+- セッション Cookie は `__Host-` / HttpOnly / Secure / SameSite=Lax。DB にはトークンの SHA-256 のみ保存
+- 状態を変える API は Origin ヘッダが同一オリジンでなければ 403
+- 機種変更や紛失に備え、設定画面から複数のパスキーを登録できる (最後の 1 つは削除不可)
+- RP ID は既定でアクセスされたホスト名。独自ドメインに固定する場合は `RP_ID` / `RP_ORIGIN` を設定
+
 ## 開発
 
 ```bash
