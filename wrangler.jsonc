@@ -1,6 +1,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "manage-shift",
+  // Cloudflare のアカウント ID (秘密情報ではない)。デプロイ先を固定する
+  "account_id": "e65f2066fdcba45ee2c06d3464860f4f",
   "main": "src/worker/index.ts",
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
