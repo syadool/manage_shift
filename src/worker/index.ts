@@ -6,6 +6,7 @@ import { memberRoutes } from "./routes/members";
 import { settingsRoutes } from "./routes/settings";
 import { shiftCodeRoutes } from "./routes/shiftCodes";
 import { shiftRoutes } from "./routes/shifts";
+import { statsRoutes } from "./routes/stats";
 import type { AppEnv } from "./types";
 
 const app = new Hono<AppEnv>().basePath("/api");
@@ -22,5 +23,6 @@ app.route("/settings", settingsRoutes);
 app.route("/shift-codes", shiftCodeRoutes);
 app.route("/members", memberRoutes);
 app.route("/shifts", shiftRoutes);
+app.route("/stats", statsRoutes);
 
 export default app;
