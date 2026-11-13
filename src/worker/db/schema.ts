@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 const id = () => text("id").primaryKey();
 const createdAt = () =>
@@ -85,6 +85,26 @@ export const members = sqliteTable(
     createdAt: createdAt(),
   },
   (t) => [index("members_user_idx").on(t.userId)],
+);
+
+/**
+ * メンバーの名前・別名を正規化したもの (normalizeName)。
+ * ユーザー内で一意にし、同時リクエストでも重複した名前を DB が拒否するようにする。
+ * members の書き込みと同じ batch (トランザクション) で更新する
+ */
+export const memberNames = sqliteTable(
+  "member_names",
+  {
+    userId: userRef(),
+    memberId: text("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
+    normalized: text("normalized").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.normalized] }),
+    index("member_names_member_idx").on(t.memberId),
+  ],
 );
 
 export const shiftCodes = sqliteTable(
