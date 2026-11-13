@@ -5,6 +5,7 @@ import { loadSession, sameOriginOnly } from "./auth/session";
 import { memberRoutes } from "./routes/members";
 import { settingsRoutes } from "./routes/settings";
 import { shiftCodeRoutes } from "./routes/shiftCodes";
+import { shiftRoutes } from "./routes/shifts";
 import type { AppEnv } from "./types";
 
 const app = new Hono<AppEnv>().basePath("/api");
@@ -20,5 +21,6 @@ app.route("/auth", authRoutes);
 app.route("/settings", settingsRoutes);
 app.route("/shift-codes", shiftCodeRoutes);
 app.route("/members", memberRoutes);
+app.route("/shifts", shiftRoutes);
 
 export default app;

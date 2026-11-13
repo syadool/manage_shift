@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { daysBetween, isValidDate } from "./dates";
 
 /** API の入力スキーマ (サーバーとクライアントで共有) */
 
@@ -50,3 +51,31 @@ export const memberInput = z.object({
   isMe: z.boolean(),
 });
 export type MemberInput = z.infer<typeof memberInput>;
+
+export const dateString = z.string().refine(isValidDate, "日付は YYYY-MM-DD で入力してください");
+
+export const shiftInput = z
+  .object({
+    memberId: z.string().min(1, "メンバーを選んでください"),
+    date: dateString,
+    shiftCodeId: z.string().min(1).nullable(),
+    startTime: time,
+    endTime: time,
+    breakMinutes: z
+      .number()
+      .int()
+      .min(0, "休憩は0分以上で入力してください")
+      .max(24 * 60, "休憩が長すぎます"),
+  })
+  .refine((v) => v.startTime !== v.endTime, { message: "開始と終了が同じ時刻です" });
+export type ShiftInput = z.infer<typeof shiftInput>;
+
+/** 一度に取得できる期間の上限 (日) */
+export const MAX_RANGE_DAYS = 62;
+
+export const shiftRangeQuery = z
+  .object({ from: dateString, to: dateString })
+  .refine((v) => v.from <= v.to, { message: "期間の指定が正しくありません" })
+  .refine((v) => daysBetween(v.from, v.to) < MAX_RANGE_DAYS, {
+    message: `期間は${MAX_RANGE_DAYS}日以内で指定してください`,
+  });
