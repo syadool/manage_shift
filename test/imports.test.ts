@@ -168,6 +168,34 @@ describe("読み取り", () => {
     });
   });
 
+  it("読み取り中に別の画面で確定されたら、遅れて届いた結果で上書きしない", async () => {
+    const { cookie } = await setup();
+    const up = await upload(cookie);
+    const id = up.data.import.id;
+    ocr.extract = async () => {
+      // この読み取りの最中に、別の画面の読み取りが終わって確定まで進んだ状態を作る
+      await env.DB.prepare("update imports set parse_token = 'other', status = 'committed', target_month = '2026-11' where id = ?")
+        .bind(id)
+        .run();
+      return EXTRACTION;
+    };
+    const r = await call(cookie, "POST", `/imports/${id}/parse`, {});
+    expect(r.status).toBe(409);
+    expect((await call(cookie, "GET", `/imports/${id}`)).data.import).toMatchObject({ status: "committed", targetMonth: "2026-11" });
+  });
+
+  it("読み取り中に別の読み取りが始まったら、古い方の失敗で状態を変えない", async () => {
+    const { cookie } = await setup();
+    const up = await upload(cookie);
+    const id = up.data.import.id;
+    ocr.extract = async () => {
+      await env.DB.prepare("update imports set parse_token = 'newer', status = 'parsed' where id = ?").bind(id).run();
+      throw new ExtractError("古い読み取りの失敗");
+    };
+    await call(cookie, "POST", `/imports/${id}/parse`, {});
+    expect((await call(cookie, "GET", `/imports/${id}`)).data.import).toMatchObject({ status: "parsed", error: null });
+  });
+
   it("他ユーザーの取り込みは読み取れない", async () => {
     const a = await setup();
     const b = await createUser();
@@ -264,6 +292,28 @@ describe("確定", () => {
       (s: any) => s.memberId === me.id,
     );
     expect(day1.map((s: any) => [s.startTime, s.source])).toEqual([["10:00", "manual"]]);
+  });
+
+  it("別の画面で保存中なら、何も書き込まずに 409", async () => {
+    const { cookie, me, sato } = await setup();
+    const { id } = await parsed(cookie);
+    await env.DB.prepare("update imports set status = 'committing' where id = ?").bind(id).run();
+    const r = await call(cookie, "POST", `/imports/${id}/commit`, commitBody(me, sato));
+    expect(r.status).toBe(409);
+    expect((await call(cookie, "GET", "/shifts?from=2026-12-01&to=2026-12-31")).data.shifts).toEqual([]);
+    expect((await call(cookie, "GET", "/members")).data.members).toHaveLength(2);
+  });
+
+  it("書き込みに失敗したら確認待ちに戻り、やり直せる", async () => {
+    const { cookie, me, sato } = await setup();
+    const { id } = await parsed(cookie);
+    const bad = await call(cookie, "POST", `/imports/${id}/commit`, {
+      yearMonth: "2026-12",
+      rows: [{ readName: "佐藤花子", target: { type: "new", name: "佐藤花子" }, cells: [{ day: 1, symbol: "A" }] }],
+    });
+    expect(bad.status).toBe(409);
+    expect((await call(cookie, "GET", `/imports/${id}`)).data.import.status).toBe("parsed");
+    expect((await call(cookie, "POST", `/imports/${id}/commit`, commitBody(me, sato))).status).toBe(200);
   });
 
   it("記号表に無い記号があれば何も保存しない", async () => {

@@ -8,7 +8,7 @@ import { Button, ErrorText, Hint, LoadError, Section } from "../components/ui";
 
 type ImportSummary = {
   id: string;
-  status: "uploaded" | "parsed" | "committed" | "failed";
+  status: "uploaded" | "parsed" | "committing" | "committed" | "failed";
   targetMonth: string | null;
   parseAttempts: number;
   error: string | null;
@@ -18,6 +18,7 @@ type ImportSummary = {
 const STATUS_LABEL: Record<ImportSummary["status"], string> = {
   uploaded: "未読み取り",
   parsed: "確認待ち",
+  committing: "保存中",
   committed: "確定済み",
   failed: "失敗",
 };

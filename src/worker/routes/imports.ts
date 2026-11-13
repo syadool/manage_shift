@@ -97,9 +97,11 @@ export const importRoutes = new Hono<AppEnv>()
     const db = getDb(c.env);
 
     // 回数の上限を超えていないものだけ、先に回数を増やして確保する (同時実行でも上限を超えない)
+    // 読み取りごとにトークンを発行する。結果はトークンが一致する (= 最後に始めた読み取り) ときだけ保存する
+    const token = crypto.randomUUID();
     const claimed = await db
       .update(imports)
-      .set({ parseAttempts: sql`${imports.parseAttempts} + 1` })
+      .set({ parseAttempts: sql`${imports.parseAttempts} + 1`, parseToken: token })
       .where(
         and(
           eq(imports.id, id),
@@ -117,9 +119,19 @@ export const importRoutes = new Hono<AppEnv>()
         .where(and(eq(imports.id, id), eq(imports.userId, userId)))
         .get();
       if (!exists) return c.json({ error: "not found" }, 404);
-      if (exists.status === "committed") return c.json({ error: "確定済みの取り込みです" }, 409);
+      if (exists.status === "committed" || exists.status === "committing") {
+        return c.json({ error: "確定済みの取り込みです" }, 409);
+      }
       return c.json({ error: `読み取りは1枚につき${MAX_PARSE_ATTEMPTS}回までです` }, 429);
     }
+
+    /** この読み取りが今も有効で、まだ確定していない場合だけ更新する */
+    const stillMine = and(
+      eq(imports.id, id),
+      eq(imports.userId, userId),
+      eq(imports.parseToken, token),
+      inArray(imports.status, ["uploaded", "failed", "parsed"]),
+    );
 
     const object = await c.env.IMAGES.get(claimed.r2Key);
     if (!object) return c.json({ error: "画像が見つかりません" }, 404);
@@ -139,9 +151,12 @@ export const importRoutes = new Hono<AppEnv>()
       const row = await db
         .update(imports)
         .set({ status: "parsed", rawResult: result, targetMonth: result.yearMonth, error: null })
-        .where(and(eq(imports.id, id), eq(imports.userId, userId)))
+        .where(stillMine)
         .returning(summary)
         .get();
+      if (!row) {
+        return c.json({ error: "別の画面での読み取りや保存が先に行われたため、この結果は使われませんでした" }, 409);
+      }
       return c.json({ import: row, result });
     } catch (e) {
       const message = e instanceof ExtractError ? e.message : "読み取りに失敗しました";
@@ -149,7 +164,7 @@ export const importRoutes = new Hono<AppEnv>()
       await db
         .update(imports)
         .set({ status: "failed", error: message })
-        .where(and(eq(imports.id, id), eq(imports.userId, userId)));
+        .where(stillMine);
       return c.json({ error: message }, 502);
     }
   })
@@ -328,13 +343,30 @@ export const importRoutes = new Hono<AppEnv>()
       db
         .update(imports)
         .set({ status: "committed", targetMonth: input.yearMonth })
-        .where(and(eq(imports.id, id), eq(imports.userId, userId), eq(imports.status, "parsed"))),
+        .where(and(eq(imports.id, id), eq(imports.userId, userId), eq(imports.status, "committing"))),
     );
+
+    // 書き込みの前に「確認待ち → 確定処理中」を1つの文で確保する。
+    // 同じ取り込みを2つの画面から同時に保存しても、書き込むのは確保できた1つだけにする
+    const claimedCommit = await db
+      .update(imports)
+      .set({ status: "committing" })
+      .where(and(eq(imports.id, id), eq(imports.userId, userId), eq(imports.status, "parsed")))
+      .returning({ id: imports.id })
+      .get();
+    if (!claimedCommit) {
+      return c.json({ error: "この取り込みは既に保存されたか、別の画面で保存中です" }, 409);
+    }
 
     try {
       // すべて1つのトランザクションで行う
       await db.batch(statements as [(typeof statements)[number], ...typeof statements]);
     } catch (e) {
+      // 失敗したら確認待ちに戻す (やり直せるように)
+      await db
+        .update(imports)
+        .set({ status: "parsed" })
+        .where(and(eq(imports.id, id), eq(imports.status, "committing")));
       if (isNameConstraintError(e)) {
         return c.json({ error: "既存のメンバーと同じ名前・別名が含まれています" }, 409);
       }

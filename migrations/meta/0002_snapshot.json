@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "15a8e6d7-2f3f-4667-807b-daa6823a0931",
+  "id": "a20260cf-bf0b-4dbf-801f-01ace51cd283",
   "prevId": "1e240190-1179-4e85-85c8-658595ba7564",
   "tables": {
     "auth_challenges": {
@@ -119,6 +119,13 @@
         },
         "error": {
           "name": "error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "parse_token": {
+          "name": "parse_token",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

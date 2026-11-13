@@ -153,7 +153,7 @@ export const imports = sqliteTable(
     r2Key: text("r2_key").notNull(),
     /** "YYYY-MM" */
     targetMonth: text("target_month"),
-    status: text("status", { enum: ["uploaded", "parsed", "committed", "failed"] }).notNull(),
+    status: text("status", { enum: ["uploaded", "parsed", "committing", "committed", "failed"] }).notNull(),
     rawResult: text("raw_result", { mode: "json" }),
     /** 画像の MIME タイプ */
     contentType: text("content_type").notNull().default("image/jpeg"),
@@ -161,6 +161,11 @@ export const imports = sqliteTable(
     parseAttempts: integer("parse_attempts").notNull().default(0),
     /** 直近の読み取り失敗の理由 */
     error: text("error"),
+    /**
+     * 最後に始めた読み取りの識別子。結果はこれが一致するときだけ保存する
+     * (同時に読み取ったとき、古い読み取りの結果で上書きしないため)
+     */
+    parseToken: text("parse_token"),
     createdAt: createdAt(),
   },
   (t) => [index("imports_user_created_idx").on(t.userId, t.createdAt)],
