@@ -18,6 +18,15 @@ export const DAILY_UPLOAD_LIMIT = 20;
 /** 1枚あたりの読み取り回数の上限 */
 export const MAX_PARSE_ATTEMPTS = 3;
 
+/** D1 は1文に渡せる値が100個まで。メンバー ID の IN 句はこの件数ずつに分ける */
+const ID_CHUNK = 50;
+
+function chunks<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
 type ImageType = "image/jpeg" | "image/png" | "image/webp";
 
 /** ファイル先頭のバイトで画像の種類を判定する (Content-Type は信用しない) */
@@ -248,24 +257,22 @@ export const importRoutes = new Hono<AppEnv>()
     const { from, to } = monthRange(input.yearMonth);
     // 手入力・手で直したシフトがある日は、画像のシフトを作らない (手で直した内容を優先し、二重にしない)
     const existingIds = rows.flatMap((r) => (r.target.type === "member" ? [r.target.memberId] : []));
-    const manualDays = new Set(
-      existingIds.length === 0
-        ? []
-        : (
-            await db
-              .select({ memberId: shifts.memberId, date: shifts.date })
-              .from(shifts)
-              .where(
-                and(
-                  eq(shifts.userId, userId),
-                  inArray(shifts.memberId, existingIds),
-                  eq(shifts.source, "manual"),
-                  gte(shifts.date, from),
-                  lte(shifts.date, to),
-                ),
-              )
-          ).map((s) => `${s.memberId}|${s.date}`),
-    );
+    const manualDays = new Set<string>();
+    for (const ids of chunks(existingIds, ID_CHUNK)) {
+      const rows = await db
+        .select({ memberId: shifts.memberId, date: shifts.date })
+        .from(shifts)
+        .where(
+          and(
+            eq(shifts.userId, userId),
+            inArray(shifts.memberId, ids),
+            eq(shifts.source, "manual"),
+            gte(shifts.date, from),
+            lte(shifts.date, to),
+          ),
+        );
+      for (const r of rows) manualDays.add(`${r.memberId}|${r.date}`);
+    }
     let skippedManual = 0;
     const statements = [];
     const shiftValues: (typeof shifts.$inferInsert)[] = [];
@@ -320,14 +327,15 @@ export const importRoutes = new Hono<AppEnv>()
     }
 
     // 3. その月の対象メンバーの「画像から取り込んだシフト」だけを置き換える (手入力は残す)
-    if (targetIds.length > 0) {
+    // メンバー数が多くても D1 の1文あたりの値の上限 (100) を超えないよう分ける。すべて同じ batch に入れる
+    for (const ids of chunks(targetIds, ID_CHUNK)) {
       statements.push(
         db
           .delete(shifts)
           .where(
             and(
               eq(shifts.userId, userId),
-              inArray(shifts.memberId, targetIds),
+              inArray(shifts.memberId, ids),
               eq(shifts.source, "ocr"),
               gte(shifts.date, from),
               lte(shifts.date, to),

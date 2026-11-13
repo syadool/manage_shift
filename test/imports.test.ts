@@ -340,6 +340,23 @@ describe("確定", () => {
     expect((await call(cookie, "POST", `/imports/${id}/commit`, commitBody(me, sato))).status).toBe(200);
   });
 
+  it("100人分の行でも保存できる (D1 の1文あたりの値の上限を超えない)", async () => {
+    const { cookie, userId, me } = await setup();
+    // 既存メンバーを99人足して、自分と合わせて100人を「既存メンバーに紐付け」で取り込む
+    const stmt = env.DB.prepare("insert into members (id, user_id, name, aliases) values (?, ?, ?, '[]')");
+    const ids = Array.from({ length: 99 }, () => crypto.randomUUID());
+    await env.DB.batch(ids.map((id, i) => stmt.bind(id, userId, `メンバー${i}`)));
+    const { id } = await parsed(cookie);
+    const rows = [me.id, ...ids].map((memberId) => ({
+      readName: "",
+      target: { type: "member", memberId, rememberAlias: false },
+      cells: [{ day: 1, symbol: "A" }],
+    }));
+    const r = await call(cookie, "POST", `/imports/${id}/commit`, { yearMonth: "2026-12", rows });
+    expect(r.status).toBe(200);
+    expect(r.data).toMatchObject({ created: 100, members: 100 });
+  });
+
   it("記号表に無い記号があれば何も保存しない", async () => {
     const { cookie, me, sato } = await setup();
     const { id } = await parsed(cookie);
