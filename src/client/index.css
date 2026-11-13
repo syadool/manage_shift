@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+/*
+ * デザイントークン
+ * - 色はグレースケールのみ (色相なし・グラデーション禁止)。強弱は濃淡で表す
+ * - spacing の基準を 8px にし、p-1 = 8px, p-2 = 16px ... と常に 8 の倍数になるようにする
+ *   (p-0.5 などの小数指定は使わない)
+ * - 影は使わない。角丸は小さめ
+ */
+@theme {
+  --color-*: initial;
+  --color-white: #ffffff;
+  --color-black: #111111;
+  --color-ink-900: #111111; /* 最も強い: 自分のシフト・主要テキスト */
+  --color-ink-700: #444444; /* 強い: 重なり */
+  --color-ink-500: #767676; /* 中: 同僚・補足テキスト */
+  --color-ink-300: #c4c4c4; /* 弱い: 罫線 */
+  --color-ink-100: #ececec; /* 最も弱い: 区切り・控えめな面 */
+  --color-ink-50: #f6f6f6;
+
+  --spacing: 8px;
+
+  --shadow-*: initial;
+  --inset-shadow-*: initial;
+  --drop-shadow-*: initial;
+
+  --radius-*: initial;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+
+  --font-sans: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+  body {
+    @apply bg-white text-ink-900 antialiased;
+    font-feature-settings: "palt";
+  }
+}
