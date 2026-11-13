@@ -292,7 +292,12 @@ export const importRoutes = new Hono<AppEnv>()
         if (r.target.rememberAlias && r.readName && !known.includes(normalizeName(r.readName))) {
           // 読み取った名前を別名として覚える (次回から自動で紐付く)
           statements.push(
-            db.update(members).set({ aliases: [...m.aliases, r.readName] }).where(eq(members.id, memberId)),
+            // 読み込んだ時点の配列で置き換えず、DB の現在の値の末尾に追加する
+            // (同時に別の取り込みが別名を足しても、互いに消し合わない)
+            db
+              .update(members)
+              .set({ aliases: sql`json_insert(${members.aliases}, '$[#]', ${r.readName})` })
+              .where(and(eq(members.id, memberId), eq(members.userId, userId))),
           );
           statements.push(
             db.insert(memberNames).values({ userId, memberId, normalized: normalizeName(r.readName) }),
