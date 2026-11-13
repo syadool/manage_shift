@@ -16,9 +16,14 @@ import type {
 
 export function Button({
   variant = "primary",
+  inline = false,
   className = "",
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: "primary" | "secondary" | "ghost";
+  /** 行の途中に置くときは左へはみ出させない (左端揃えは行頭のボタンにだけ適用する) */
+  inline?: boolean;
+}) {
   const styles = {
     primary: "bg-ink-900 text-white disabled:bg-ink-300",
     secondary: "border border-ink-300 text-ink-900 disabled:text-ink-300",
@@ -26,7 +31,7 @@ export function Button({
   }[variant];
   return (
     <button
-      className={`inline-flex h-5 shrink-0 items-center gap-1 rounded-sm text-sm ${variant === "ghost" ? "" : "-ml-2 px-2"} ${styles} ${className}`}
+      className={`inline-flex h-5 shrink-0 items-center gap-1 rounded-sm text-sm ${variant === "ghost" ? "" : inline ? "px-2" : "-ml-2 px-2"} ${styles} ${className}`}
       {...props}
     />
   );

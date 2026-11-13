@@ -155,7 +155,13 @@ export const imports = sqliteTable(
     targetMonth: text("target_month"),
     status: text("status", { enum: ["uploaded", "parsed", "committed", "failed"] }).notNull(),
     rawResult: text("raw_result", { mode: "json" }),
+    /** 画像の MIME タイプ */
+    contentType: text("content_type").notNull().default("image/jpeg"),
+    /** 読み取り (Claude API 呼び出し) の回数。費用の上限管理に使う */
+    parseAttempts: integer("parse_attempts").notNull().default(0),
+    /** 直近の読み取り失敗の理由 */
+    error: text("error"),
     createdAt: createdAt(),
   },
-  (t) => [index("imports_user_idx").on(t.userId)],
+  (t) => [index("imports_user_created_idx").on(t.userId, t.createdAt)],
 );

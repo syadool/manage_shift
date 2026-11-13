@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { secureHeaders } from "hono/secure-headers";
 import { authRoutes } from "./auth/routes";
 import { loadSession, sameOriginOnly } from "./auth/session";
+import { importRoutes } from "./routes/imports";
 import { memberRoutes } from "./routes/members";
 import { settingsRoutes } from "./routes/settings";
 import { shiftCodeRoutes } from "./routes/shiftCodes";
@@ -22,5 +23,6 @@ app.route("/settings", settingsRoutes);
 app.route("/shift-codes", shiftCodeRoutes);
 app.route("/members", memberRoutes);
 app.route("/shifts", shiftRoutes);
+app.route("/imports", importRoutes);
 
 export default app;

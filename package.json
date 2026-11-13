@@ -15,6 +15,7 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
     "@hono/zod-validator": "^0.9.1",
     "@simplewebauthn/browser": "^14.0.0",
     "@simplewebauthn/server": "^14.1.0",
