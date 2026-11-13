@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { env, exports } from "cloudflare:workers";
 import { ocr, ExtractError } from "../src/worker/ocr/extract";
-import { cleanExtraction, matchCode, matchMember, type Extraction } from "../src/shared/importing";
+import { cleanExtraction, fromOcrOutput, matchCode, matchMember, type Extraction } from "../src/shared/importing";
 import { normalizeName } from "../src/shared/names";
 import { sniffImageType, MAX_PARSE_ATTEMPTS } from "../src/worker/routes/imports";
 import { call, createUser, ORIGIN } from "./helpers";
@@ -72,6 +72,32 @@ describe("ユーティリティ", () => {
     });
     expect(r.yearMonth).toBeNull();
     expect(r.rows).toEqual([{ name: "山田", cells: [{ day: 1, symbol: "B" }, { day: 3, symbol: "A" }] }]);
+  });
+
+  it("Claude の出力 (日付の列 + 記号の配列) をセルに変換する", () => {
+    const r = fromOcrOutput({
+      yearMonth: "2026-11",
+      days: [1, 2, 3],
+      rows: [
+        { name: "山田", symbols: ["A", "", "B"] },
+        { name: "佐藤", symbols: ["C"] },
+        { name: "鈴木", symbols: ["A", "B", "C", "D"] },
+      ],
+      notes: "",
+    });
+    expect(r.rows[0].cells).toEqual([{ day: 1, symbol: "A" }, { day: 2, symbol: "" }, { day: 3, symbol: "B" }]);
+    // 数が合わない行は短い方に合わせ、推測で補わない
+    expect(r.rows[1].cells).toEqual([{ day: 1, symbol: "C" }]);
+    expect(r.rows[2].cells).toHaveLength(3);
+    expect(r.notes).toContain("佐藤、鈴木");
+  });
+
+  it("変換後も範囲外の日・重複した日は取り除く", () => {
+    const r = cleanExtraction(
+      fromOcrOutput({ yearMonth: null, days: [0, 1, 1, 32], rows: [{ name: "山田", symbols: ["X", "A", "B", "Y"] }], notes: "読みにくい" }),
+    );
+    expect(r.rows[0].cells).toEqual([{ day: 1, symbol: "A" }]);
+    expect(r.notes).toBe("読みにくい");
   });
 
   it("名前と記号の照合は表記ゆれを吸収する", () => {
