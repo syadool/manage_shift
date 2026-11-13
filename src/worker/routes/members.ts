@@ -40,12 +40,12 @@ function normalizedNames(input: MemberInput): string[] {
   return [...new Set([input.name, ...input.aliases].map(normalizeName))];
 }
 
-function nameRows(userId: string, memberId: string, input: MemberInput) {
+export function nameRows(userId: string, memberId: string, input: MemberInput) {
   return normalizedNames(input).map((normalized) => ({ userId, memberId, normalized }));
 }
 
 /** D1 の一意制約違反 (member_names の主キー) か */
-function isNameConstraintError(e: unknown): boolean {
+export function isNameConstraintError(e: unknown): boolean {
   const msg = (x: unknown): string => (x instanceof Error ? `${x.message} ${msg(x.cause)}` : "");
   return /UNIQUE constraint failed: member_names|PRIMARY KEY.*member_names/i.test(msg(e));
 }

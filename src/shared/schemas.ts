@@ -39,14 +39,21 @@ export const shiftCodeInput = z
   .refine((v) => v.isOff || (v.startTime && v.endTime), {
     message: "開始・終了時刻を入力してください",
   })
+  // 同じ時刻だと日跨ぎ扱いになり24時間勤務として計算されてしまうため
+  .refine((v) => v.isOff || v.startTime !== v.endTime, {
+    message: "開始と終了が同じ時刻です",
+  })
   .transform((v) => (v.isOff ? { ...v, startTime: null, endTime: null, breakMinutes: 0 } : v));
 export type ShiftCodeInput = z.input<typeof shiftCodeInput>;
+
+/** メンバー1人あたりの別名の上限 */
+export const MAX_ALIASES = 20;
 
 export const memberInput = z.object({
   name: z.string().trim().min(1, "名前を入力してください").max(40, "名前は40文字までです"),
   aliases: z
     .array(z.string().trim().min(1).max(40))
-    .max(20, "別名は20個までです")
+    .max(MAX_ALIASES, `別名は${MAX_ALIASES}個までです`)
     .transform((a) => [...new Set(a)]),
   isMe: z.boolean(),
 });

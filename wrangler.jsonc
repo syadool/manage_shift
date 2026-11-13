@@ -25,5 +25,6 @@
   ],
   // パスキーの RP ID / オリジン。空ならアクセスされたホストから自動で決める
   "vars": { "RP_ID": "", "RP_ORIGIN": "" },
+  // ANTHROPIC_API_KEY は secret (本番: `wrangler secret put ANTHROPIC_API_KEY`、開発: .dev.vars)
   "observability": { "enabled": true }
 }

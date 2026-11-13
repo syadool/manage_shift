@@ -29,6 +29,19 @@ npm run dev
 - 型チェック: `npm run typecheck`
 - スキーマ変更後: `npm run db:generate` → `npm run db:migrate:local`
 
+## シフト表画像の読み取り (Claude API)
+
+- 取り込み画面で画像を選ぶと、ブラウザで長辺 2000px の JPEG に縮小してアップロードし、R2 に保存します
+- Worker が Claude API (`claude-opus-5-5`, 構造化出力) で表を読み取り、確認・修正画面で直してから保存します
+- 同じ月を取り込み直すと、画像から取り込んだシフトだけを置き換えます (手入力のシフトは残ります)
+- 費用の上限: アップロードは1ユーザー1日20枚まで、読み取りは1枚3回まで
+
+開発時は `.dev.vars` に API キーを書きます (`.dev.vars.example` をコピー。`.dev.vars` はコミットしません)。
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
 ## デプロイ (Cloudflare)
 
 初回だけ、自分の PC で次を実行します (Cloudflare アカウントが必要。無料プランで動きます)。

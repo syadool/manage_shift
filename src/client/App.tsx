@@ -5,9 +5,10 @@ import { useAuth } from "./lib/auth";
 import { Calendar } from "./pages/Calendar";
 import { Coworkers } from "./pages/Coworkers";
 import { Day } from "./pages/Day";
+import { Import } from "./pages/Import";
+import { ImportReview } from "./pages/ImportReview";
 import { Login } from "./pages/Login";
 import { Pay } from "./pages/Pay";
-import { Placeholder } from "./pages/Placeholder";
 import { Settings } from "./pages/Settings";
 
 export function App() {
@@ -34,7 +35,8 @@ export function App() {
         <Route path="day/:date" element={<Day />} />
         <Route path="coworkers" element={<Coworkers />} />
         <Route path="pay" element={<Pay />} />
-        <Route path="import" element={<Placeholder label="取り込み" />} />
+        <Route path="import" element={<Import />} />
+        <Route path="import/:id" element={<ImportReview />} />
         <Route path="settings" element={<Settings />} />
       </Route>
     </Routes>
