@@ -184,3 +184,65 @@ describe("メンバー", () => {
     expect(r.data.member.aliases).toEqual(["すずき"]);
   });
 });
+
+describe("メンバー名の一意性 (DB 制約)", () => {
+  it("同じ名前の同時作成は1件だけ成功する", async () => {
+    const { cookie } = await createUser();
+    const results = await Promise.all(
+      ["山田 太郎", "山田太郎", "ﾔﾏﾀﾞﾀﾛｳ", "やまだ"].map((name, i) =>
+        call(cookie, "POST", "/members", {
+          name: i === 3 ? "別名で衝突" : name,
+          aliases: i === 2 ? [] : i === 3 ? ["山田太郎"] : [],
+          isMe: false,
+        }),
+      ),
+    );
+    const statuses = results.map((r) => r.status).sort();
+    // 「山田 太郎」「山田太郎」「別名: 山田太郎」は同じ名前。「ﾔﾏﾀﾞﾀﾛｳ」は別
+    expect(statuses.filter((s) => s === 201)).toHaveLength(2);
+    expect(statuses.filter((s) => s === 409)).toHaveLength(2);
+    const names = (await call(cookie, "GET", "/members")).data.members.map((m: any) => m.name);
+    expect(names).toHaveLength(2);
+    expect(names).toContain("ﾔﾏﾀﾞﾀﾛｳ");
+  });
+
+  it("事前チェックをすり抜けても、DB の一意制約で 409 になる", async () => {
+    const { env } = await import("cloudflare:workers");
+    const { cookie, userId } = await createUser();
+    // findNameConflict が見る members には無いが、member_names には既にある状態を作る
+    const ghost = (await call(cookie, "POST", "/members", { name: "幽霊", aliases: [], isMe: false })).data.member;
+    await env.DB.prepare("update members set name = '別人', aliases = '[]' where id = ?").bind(ghost.id).run();
+    const r = await call(cookie, "POST", "/members", { name: "幽霊", aliases: [], isMe: true });
+    expect(r.status).toBe(409);
+    // 失敗したトランザクションは何も残さない (members も増えず、isMe も変わらない)
+    const count = await env.DB.prepare("select count(*) as n from members where user_id = ?").bind(userId).first("n");
+    expect(count).toBe(1);
+  });
+
+  it("名前を変えると古い名前は解放され、別のメンバーで使える", async () => {
+    const { cookie } = await createUser();
+    const a = (await call(cookie, "POST", "/members", { name: "佐藤", aliases: ["さとう"], isMe: false })).data.member;
+    await call(cookie, "PUT", `/members/${a.id}`, { name: "佐藤 花子", aliases: [], isMe: false });
+    expect((await call(cookie, "POST", "/members", { name: "さとう", aliases: [], isMe: false })).status).toBe(201);
+  });
+
+  it("メンバーを削除すると名前は解放される", async () => {
+    const { cookie } = await createUser();
+    const a = (await call(cookie, "POST", "/members", { name: "鈴木", aliases: [], isMe: false })).data.member;
+    await call(cookie, "DELETE", `/members/${a.id}`);
+    expect((await call(cookie, "POST", "/members", { name: "鈴木", aliases: [], isMe: false })).status).toBe(201);
+  });
+
+  it("名前と別名が正規化後に同じでも、自分自身とは衝突しない", async () => {
+    const { cookie } = await createUser();
+    const r = await call(cookie, "POST", "/members", { name: "高橋", aliases: ["高 橋", "ﾀｶﾊｼ", "タカハシ"], isMe: false });
+    expect(r.status).toBe(201);
+  });
+
+  it("別ユーザーなら同じ名前を使える", async () => {
+    const a = await createUser();
+    const b = await createUser();
+    expect((await call(a.cookie, "POST", "/members", { name: "田中", aliases: [], isMe: false })).status).toBe(201);
+    expect((await call(b.cookie, "POST", "/members", { name: "田中", aliases: [], isMe: false })).status).toBe(201);
+  });
+});
