@@ -51,7 +51,8 @@ export function ShiftForm({
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const ok = await run(() =>
-      api(shift ? `/shifts/${shift.id}` : "/shifts", { method: shift ? "PUT" : "POST", body: { ...v, date } }),
+      // 日付は初期値 (新規は表示中の日、編集は元のシフトの日) のまま送る
+      api(shift ? `/shifts/${shift.id}` : "/shifts", { method: shift ? "PUT" : "POST", body: v }),
     );
     if (ok) onDone();
   };

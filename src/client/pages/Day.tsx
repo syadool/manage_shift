@@ -21,8 +21,16 @@ function hourRange(shifts: Shift[]): [number, number] {
   return [lo, hi];
 }
 
+/**
+ * 日付ごとに画面を作り直す (key=date)。
+ * 編集中のフォームが別の日に持ち越され、元のシフトの日付を書き換えてしまうのを防ぐ
+ */
 export function Day() {
   const { date = "" } = useParams();
+  return <DayView key={date} date={date} />;
+}
+
+function DayView({ date }: { date: string }) {
   const navigate = useNavigate();
   const valid = isValidDate(date);
   const data = useShiftData(valid ? date : "2000-01-01", valid ? date : "2000-01-01");

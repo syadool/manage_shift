@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { overlapMinutes } from "../../shared/calc";
 import type { ShiftCodeInput, ShiftInput } from "../../shared/schemas";
 import { api } from "./api";
@@ -14,10 +14,18 @@ export function useShiftData(from: string, to: string) {
   const [shifts, setShifts] = useState<Shift[]>();
   const [error, setError] = useState("");
 
+  // 期間を素早く切り替えたとき、古い期間の応答が後から届いて上書きしないよう、
+  // 最後に出した要求の応答だけを反映する
+  const generation = useRef(0);
   const reloadShifts = useCallback(() => {
+    const gen = ++generation.current;
     api<{ shifts: Shift[] }>(`/shifts?from=${from}&to=${to}`)
-      .then((r) => setShifts(r.shifts))
-      .catch((e: Error) => setError(e.message));
+      .then((r) => {
+        if (gen === generation.current) setShifts(r.shifts);
+      })
+      .catch((e: Error) => {
+        if (gen === generation.current) setError(e.message);
+      });
   }, [from, to]);
 
   useEffect(() => {
