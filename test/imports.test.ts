@@ -404,6 +404,25 @@ describe("確定", () => {
     expect(names.results.map((n: any) => n.normalized)).not.toContain(normalizeName("ｻﾄｳ"));
   });
 
+  it("開始と終了が同じ時刻の勤務記号は、記号表に登録できず、既存のものは取り込みで拒否する", async () => {
+    const { cookie, userId, me, sato } = await setup();
+    const same = { symbol: "Z", isOff: false, startTime: "09:00", endTime: "09:00", breakMinutes: 0 };
+    expect((await call(cookie, "POST", "/shift-codes", same)).status).toBe(400);
+    // 以前のバージョンで登録されたものを想定して直接入れる
+    await env.DB.prepare(
+      "insert into shift_codes (id, user_id, symbol, start_time, end_time, break_minutes, is_off) values (?, ?, 'Z', '09:00', '09:00', 0, 0)",
+    )
+      .bind(crypto.randomUUID(), userId)
+      .run();
+    const { id } = await parsed(cookie);
+    const body = commitBody(me, sato);
+    body.rows[0].cells = [{ day: 1, symbol: "Z" }];
+    const r = await call(cookie, "POST", `/imports/${id}/commit`, body);
+    expect(r.status).toBe(400);
+    expect(r.data.error).toContain("Z");
+    expect((await call(cookie, "GET", "/shifts?from=2026-12-01&to=2026-12-31")).data.shifts).toEqual([]);
+  });
+
   it("記号表に無い記号があれば何も保存しない", async () => {
     const { cookie, me, sato } = await setup();
     const { id } = await parsed(cookie);

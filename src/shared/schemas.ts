@@ -39,6 +39,10 @@ export const shiftCodeInput = z
   .refine((v) => v.isOff || (v.startTime && v.endTime), {
     message: "開始・終了時刻を入力してください",
   })
+  // 同じ時刻だと日跨ぎ扱いになり24時間勤務として計算されてしまうため
+  .refine((v) => v.isOff || v.startTime !== v.endTime, {
+    message: "開始と終了が同じ時刻です",
+  })
   .transform((v) => (v.isOff ? { ...v, startTime: null, endTime: null, breakMinutes: 0 } : v));
 export type ShiftCodeInput = z.input<typeof shiftCodeInput>;
 

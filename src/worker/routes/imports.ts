@@ -250,6 +250,20 @@ export const importRoutes = new Hono<AppEnv>()
         if (normalizeSymbol(cell.symbol) !== "" && !matchCode(cell.symbol, codeRows)) unknown.add(cell.symbol);
       }
     }
+    // 開始と終了が同じ勤務記号 (以前に登録されたもの) は、24時間勤務として計算されてしまうので保存しない
+    const invalid = new Set<string>();
+    for (const r of rows) {
+      for (const cell of r.cells) {
+        const code = matchCode(cell.symbol, codeRows);
+        if (code && !code.isOff && code.startTime && code.startTime === code.endTime) invalid.add(code.symbol);
+      }
+    }
+    if (invalid.size > 0) {
+      return c.json(
+        { error: `開始と終了が同じ時刻の記号があります: ${[...invalid].join("、")}。記号表で時刻を直してください` },
+        400,
+      );
+    }
     if (unknown.size > 0) {
       return c.json({ error: `記号表に無い記号があります: ${[...unknown].join("、")}`, unknownSymbols: [...unknown] }, 400);
     }
