@@ -94,6 +94,20 @@ export function ErrorText({ children }: { children: ReactNode }) {
   ) : null;
 }
 
+/** 読み込み失敗の表示。空のデータと区別できるようにし、再読み込みできるようにする */
+export function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="flex items-center gap-2">
+      <p role="alert" className="text-sm text-ink-900">
+        読み込みに失敗しました: {message}
+      </p>
+      <Button variant="ghost" onClick={onRetry}>
+        再読み込み
+      </Button>
+    </div>
+  );
+}
+
 /** 補足テキスト。最も弱い濃度 */
 export function Hint({ children }: { children: ReactNode }) {
   return <p className="pt-1 text-xs text-ink-500">{children}</p>;

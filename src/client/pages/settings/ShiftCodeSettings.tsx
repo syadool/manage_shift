@@ -4,7 +4,7 @@ import type { ShiftCodeInput } from "../../../shared/schemas";
 import { api } from "../../lib/api";
 import { useAction, useResource } from "../../lib/useResource";
 import { ICON_PROPS } from "../../components/Layout";
-import { Button, Checkbox, ErrorText, Field, Section, TextInput } from "../../components/ui";
+import { Button, Checkbox, ErrorText, Field, Section, TextInput, LoadError } from "../../components/ui";
 
 type ShiftCode = ShiftCodeInput & { id: string };
 
@@ -97,7 +97,7 @@ function CodeForm({
 }
 
 export function ShiftCodeSettings() {
-  const { data, reload } = useResource<{ shiftCodes: ShiftCode[] }>("/shift-codes");
+  const { data, error: loadError, reload } = useResource<{ shiftCodes: ShiftCode[] }>("/shift-codes");
   const [editing, setEditing] = useState<string | null>(null);
   const { error, run } = useAction();
 
@@ -138,7 +138,9 @@ export function ShiftCodeSettings() {
           ),
         )}
       </ul>
-      {editing === null && (
+      {loadError && <LoadError message={loadError} onRetry={reload} />}
+      {/* 読み込めていない間は追加フォームを出さない (空の一覧と区別するため) */}
+      {editing === null && data && (
         <div className="max-w-md">
           <CodeForm initial={EMPTY} submitLabel="記号を追加" onSubmit={save(null)} />
         </div>
