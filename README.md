@@ -50,9 +50,15 @@ ANTHROPIC_API_KEY=sk-ant-...
 - R2: `manage-shift-images`
 - Secret: `ANTHROPIC_API_KEY` (シフト表画像の読み取り)。Cloudflare ダッシュボード → Workers & Pages → manage-shift → Settings → Variables and Secrets で設定する。値はリポジトリに置かない
 
-更新のたびに行うこと:
+**`main` にマージされると、GitHub Actions (`.github/workflows/deploy.yml`) が自動で公開します。**
+型チェック → テスト → ビルド → D1 マイグレーション → デプロイ → 動作確認 (`/api/health`) の順で、途中で失敗したら公開しません。
+GitHub のリポジトリ設定 → Secrets and variables → Actions に、Secret `CLOUDFLARE_API_TOKEN` が必要です (権限はワークフローの先頭に記載)。
+Actions タブの「Deploy」→「Run workflow」で、手動でも実行できます。
+
+手元から公開する場合:
 
 ```bash
+npx wrangler login
 npm run db:migrate:remote   # マイグレーションがあるとき
 npm run deploy
 ```
