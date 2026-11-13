@@ -13,6 +13,13 @@ const WALL_PRESETS = [
   { yen: 1_600_000, label: "160万 所得税" },
 ];
 
+/** 保存するときの壁の名前 (候補の表示名から金額部分を除いたもの) */
+const presetName = (p: (typeof WALL_PRESETS)[number]) => p.label.replace(/^\S+\s/, "");
+
+/** 金額と名前の両方が一致するときだけ候補とみなす (同額で独自の名前を付けた場合は「金額を入力」のまま) */
+const matchPreset = (yen: number | null, label: string | null) =>
+  WALL_PRESETS.find((p) => p.yen === yen && presetName(p) === label);
+
 type Form = {
   hourlyWage: string;
   transportPerDay: string;
@@ -23,7 +30,7 @@ type Form = {
 };
 
 const toForm = (s: SettingsInput): Form => {
-  const preset = WALL_PRESETS.find((p) => p.yen === s.incomeWallYen);
+  const preset = matchPreset(s.incomeWallYen, s.wallLabel);
   return {
     hourlyWage: s.hourlyWage ? String(s.hourlyWage) : "",
     transportPerDay: s.transportPerDay ? String(s.transportPerDay) : "",
@@ -59,7 +66,7 @@ export function PaySettings() {
       hourlyWage: num(form.hourlyWage),
       transportPerDay: num(form.transportPerDay),
       incomeWallYen: form.wall === "" ? null : preset ? preset.yen : num(form.customWall),
-      wallLabel: form.wall === "" ? null : preset ? preset.label.replace(/^\S+\s/, "") : form.wallLabel || null,
+      wallLabel: form.wall === "" ? null : preset ? presetName(preset) : form.wallLabel || null,
       includeTransportInWall: form.includeTransportInWall,
     };
     if (await run(() => api("/settings", { method: "PUT", body }))) setSaved(true);
