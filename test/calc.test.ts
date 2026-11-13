@@ -23,25 +23,25 @@ describe("toMinutes", () => {
 
 describe("workedMinutes", () => {
   it("subtracts break", () => {
-    expect(workedMinutes({ start: "09:00", end: "17:00", breakMinutes: 60 })).toBe(420);
+    expect(workedMinutes({ startTime: "09:00", endTime: "17:00", breakMinutes: 60 })).toBe(420);
   });
   it("handles overnight", () => {
-    expect(workedMinutes({ start: "22:00", end: "05:00", breakMinutes: 0 })).toBe(420);
+    expect(workedMinutes({ startTime: "22:00", endTime: "05:00", breakMinutes: 0 })).toBe(420);
   });
   it("never negative", () => {
-    expect(workedMinutes({ start: "09:00", end: "09:30", breakMinutes: 60 })).toBe(0);
+    expect(workedMinutes({ startTime: "09:00", endTime: "09:30", breakMinutes: 60 })).toBe(0);
   });
 });
 
 describe("overlapMinutes", () => {
   it("partial overlap", () => {
-    expect(overlapMinutes({ start: "09:00", end: "17:00" }, { start: "15:00", end: "22:00" })).toBe(120);
+    expect(overlapMinutes({ startTime: "09:00", endTime: "17:00" }, { startTime: "15:00", endTime: "22:00" })).toBe(120);
   });
   it("no overlap when touching", () => {
-    expect(overlapMinutes({ start: "09:00", end: "15:00" }, { start: "15:00", end: "22:00" })).toBe(0);
+    expect(overlapMinutes({ startTime: "09:00", endTime: "15:00" }, { startTime: "15:00", endTime: "22:00" })).toBe(0);
   });
   it("overnight overlap", () => {
-    expect(overlapMinutes({ start: "20:00", end: "02:00" }, { start: "22:00", end: "06:00" })).toBe(240);
+    expect(overlapMinutes({ startTime: "20:00", endTime: "02:00" }, { startTime: "22:00", endTime: "06:00" })).toBe(240);
   });
 });
 
@@ -49,8 +49,8 @@ describe("summarizePay", () => {
   it("wage + transport per distinct day", () => {
     const r = summarizePay(
       [
-        { date: "2026-11-01", start: "09:00", end: "17:00", breakMinutes: 60 },
-        { date: "2026-11-02", start: "18:00", end: "22:30", breakMinutes: 0 },
+        { date: "2026-11-01", startTime: "09:00", endTime: "17:00", breakMinutes: 60 },
+        { date: "2026-11-02", startTime: "18:00", endTime: "22:30", breakMinutes: 0 },
       ],
       { hourlyWage: 1200, transportPerDay: 300 },
     );
@@ -80,14 +80,14 @@ describe("wallStatus", () => {
 describe("coworkerStats", () => {
   it("ranks by overlap minutes", () => {
     const mine = [
-      { date: "2026-11-01", start: "09:00", end: "17:00", breakMinutes: 60 },
-      { date: "2026-11-02", start: "09:00", end: "13:00", breakMinutes: 0 },
+      { date: "2026-11-01", startTime: "09:00", endTime: "17:00", breakMinutes: 60 },
+      { date: "2026-11-02", startTime: "09:00", endTime: "13:00", breakMinutes: 0 },
     ];
     const others = [
-      { memberId: "a", date: "2026-11-01", start: "12:00", end: "20:00", breakMinutes: 0 },
-      { memberId: "b", date: "2026-11-01", start: "09:00", end: "17:00", breakMinutes: 0 },
-      { memberId: "b", date: "2026-11-02", start: "12:00", end: "18:00", breakMinutes: 0 },
-      { memberId: "c", date: "2026-11-03", start: "09:00", end: "17:00", breakMinutes: 0 },
+      { memberId: "a", date: "2026-11-01", startTime: "12:00", endTime: "20:00", breakMinutes: 0 },
+      { memberId: "b", date: "2026-11-01", startTime: "09:00", endTime: "17:00", breakMinutes: 0 },
+      { memberId: "b", date: "2026-11-02", startTime: "12:00", endTime: "18:00", breakMinutes: 0 },
+      { memberId: "c", date: "2026-11-03", startTime: "09:00", endTime: "17:00", breakMinutes: 0 },
     ];
     expect(coworkerStats(mine, others)).toEqual([
       { memberId: "b", days: 2, minutes: 480 + 60 },

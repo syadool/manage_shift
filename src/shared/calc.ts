@@ -1,6 +1,6 @@
 /** 勤務時間・給与・重なりの計算 (純粋関数) */
 
-export type Interval = { start: string; end: string };
+export type Interval = { startTime: string; endTime: string };
 export type WorkShift = Interval & { date: string; breakMinutes: number };
 
 const DAY = 24 * 60;
@@ -16,9 +16,9 @@ export function toMinutes(hhmm: string): number {
 }
 
 /** その日 0:00 起点の [開始, 終了) 分。終了が開始以前なら翌日に跨ぐ */
-export function span({ start, end }: Interval): [number, number] {
-  const s = toMinutes(start);
-  let e = toMinutes(end);
+export function span({ startTime, endTime }: Interval): [number, number] {
+  const s = toMinutes(startTime);
+  let e = toMinutes(endTime);
   if (e <= s) e += DAY;
   return [s, e];
 }
