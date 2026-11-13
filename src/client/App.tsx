@@ -2,8 +2,10 @@ import { Route, Routes } from "react-router";
 import { Layout } from "./components/Layout";
 import { useAuth } from "./lib/auth";
 import { Calendar } from "./pages/Calendar";
+import { Coworkers } from "./pages/Coworkers";
 import { Day } from "./pages/Day";
 import { Login } from "./pages/Login";
+import { Pay } from "./pages/Pay";
 import { Placeholder } from "./pages/Placeholder";
 import { Settings } from "./pages/Settings";
 
@@ -17,8 +19,8 @@ export function App() {
       <Route element={<Layout />}>
         <Route index element={<Calendar />} />
         <Route path="day/:date" element={<Day />} />
-        <Route path="coworkers" element={<Placeholder label="一緒に働く人" />} />
-        <Route path="pay" element={<Placeholder label="給与" />} />
+        <Route path="coworkers" element={<Coworkers />} />
+        <Route path="pay" element={<Pay />} />
         <Route path="import" element={<Placeholder label="取り込み" />} />
         <Route path="settings" element={<Settings />} />
       </Route>
