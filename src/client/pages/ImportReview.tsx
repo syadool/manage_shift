@@ -134,10 +134,14 @@ export function ImportReview() {
     const set = new Set<string>();
     for (const r of rows ?? []) {
       if (r.target.type === "skip") continue;
-      for (const s of Object.values(r.cells)) if (normalizeSymbol(s) && !matchCode(s, codes)) set.add(normalizeSymbol(s));
+      // 表に出ている (保存対象の) 日だけを見る。31日の無い月の31日などは保存しないので対象外
+      for (const d of days) {
+        const s = r.cells[d] ?? "";
+        if (normalizeSymbol(s) && !matchCode(s, codes)) set.add(normalizeSymbol(s));
+      }
     }
     return [...set];
-  }, [rows, codes]);
+  }, [rows, codes, days]);
 
   const loadError = imp.error || membersRes.error || codesRes.error;
   if (loadError) {

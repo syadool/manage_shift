@@ -56,15 +56,6 @@ export const importRoutes = new Hono<AppEnv>()
     const userId = c.get("user")!.id;
     const db = getDb(c.env);
 
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const [{ n }] = await db
-      .select({ n: sql<number>`count(*)` })
-      .from(imports)
-      .where(and(eq(imports.userId, userId), gte(imports.createdAt, since)));
-    if (n >= DAILY_UPLOAD_LIMIT) {
-      return c.json({ error: `取り込みは1日${DAILY_UPLOAD_LIMIT}枚までです` }, 429);
-    }
-
     const form = await c.req.formData().catch(() => null);
     const file = form?.get("image");
     if (!file || typeof file === "string") return c.json({ error: "画像を選んでください" }, 400);
@@ -73,14 +64,29 @@ export const importRoutes = new Hono<AppEnv>()
     const type = sniffImageType(new Uint8Array(body, 0, Math.min(16, body.byteLength)));
     if (!type) return c.json({ error: "JPEG・PNG・WebP の画像を選んでください" }, 400);
 
+    // 枠の確保: 「直近24時間の件数が上限未満なら挿入」を1つの文で行う (同時アップロードでも上限を超えない)
     const id = crypto.randomUUID();
     const r2Key = `${userId}/${id}`;
-    await c.env.IMAGES.put(r2Key, body, { httpMetadata: { contentType: type } });
-    const row = await db
-      .insert(imports)
-      .values({ id, userId, r2Key, contentType: type, status: "uploaded" })
-      .returning(summary)
-      .get();
+    const since = Math.floor(Date.now() / 1000) - 24 * 60 * 60;
+    const reserved = await c.env.DB.prepare(
+      `insert into imports (id, user_id, r2_key, content_type, status)
+       select ?1, ?2, ?3, ?4, 'uploaded'
+       where (select count(*) from imports where user_id = ?2 and created_at >= ?5) < ?6`,
+    )
+      .bind(id, userId, r2Key, type, since, DAILY_UPLOAD_LIMIT)
+      .run();
+    if (reserved.meta.changes !== 1) {
+      return c.json({ error: `取り込みは1日${DAILY_UPLOAD_LIMIT}枚までです` }, 429);
+    }
+
+    try {
+      await c.env.IMAGES.put(r2Key, body, { httpMetadata: { contentType: type } });
+    } catch (e) {
+      // 保存に失敗したら確保した枠を戻す
+      await db.delete(imports).where(eq(imports.id, id));
+      throw e;
+    }
+    const row = await db.select(summary).from(imports).where(eq(imports.id, id)).get();
     return c.json({ import: row }, 201);
   })
 
@@ -225,6 +231,27 @@ export const importRoutes = new Hono<AppEnv>()
 
     // 2. 書き込み内容を組み立てる
     const { from, to } = monthRange(input.yearMonth);
+    // 手入力・手で直したシフトがある日は、画像のシフトを作らない (手で直した内容を優先し、二重にしない)
+    const existingIds = rows.flatMap((r) => (r.target.type === "member" ? [r.target.memberId] : []));
+    const manualDays = new Set(
+      existingIds.length === 0
+        ? []
+        : (
+            await db
+              .select({ memberId: shifts.memberId, date: shifts.date })
+              .from(shifts)
+              .where(
+                and(
+                  eq(shifts.userId, userId),
+                  inArray(shifts.memberId, existingIds),
+                  eq(shifts.source, "manual"),
+                  gte(shifts.date, from),
+                  lte(shifts.date, to),
+                ),
+              )
+          ).map((s) => `${s.memberId}|${s.date}`),
+    );
+    let skippedManual = 0;
     const statements = [];
     const shiftValues: (typeof shifts.$inferInsert)[] = [];
     const targetIds: string[] = [];
@@ -259,6 +286,10 @@ export const importRoutes = new Hono<AppEnv>()
         if (!code || code.isOff || !code.startTime || !code.endTime) continue;
         const date = `${input.yearMonth}-${String(cell.day).padStart(2, "0")}`;
         if (!isValidDate(date)) continue; // 31日が無い月など
+        if (manualDays.has(`${memberId}|${date}`)) {
+          skippedManual++;
+          continue;
+        }
         shiftValues.push({
           id: crypto.randomUUID(),
           userId,
@@ -309,5 +340,11 @@ export const importRoutes = new Hono<AppEnv>()
       }
       throw e;
     }
-    return c.json({ ok: true, yearMonth: input.yearMonth, created: shiftValues.length, members: targetIds.length });
+    return c.json({
+      ok: true,
+      yearMonth: input.yearMonth,
+      created: shiftValues.length,
+      members: targetIds.length,
+      skippedManual,
+    });
   });

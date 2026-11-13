@@ -110,6 +110,16 @@ describe("アップロード", () => {
     expect(r.status).toBe(400);
   });
 
+  it("同時にアップロードしても1日の上限を超えない", async () => {
+    const { cookie, userId } = await createUser();
+    const stmt = env.DB.prepare("insert into imports (id, user_id, r2_key, status) values (?, ?, 'k', 'uploaded')");
+    await env.DB.batch(Array.from({ length: 19 }, () => stmt.bind(crypto.randomUUID(), userId)));
+    const results = await Promise.all(Array.from({ length: 5 }, () => upload(cookie)));
+    expect(results.map((r) => r.status).sort()).toEqual([201, 429, 429, 429, 429]);
+    const n = await env.DB.prepare("select count(*) as n from imports where user_id = ?").bind(userId).first("n");
+    expect(n).toBe(20);
+  });
+
   it("1日の枚数に上限がある", async () => {
     const { cookie, userId } = await createUser();
     const stmt = env.DB.prepare(
@@ -233,6 +243,27 @@ describe("確定", () => {
       (s: any) => s.memberId === sato.id,
     );
     expect(satoShifts).toHaveLength(1);
+  });
+
+  it("手で直したシフトがある日は、取り込み直しても画像のシフトを足さない", async () => {
+    const { cookie, me, sato } = await setup();
+    const first = await parsed(cookie);
+    await call(cookie, "POST", `/imports/${first.id}/commit`, commitBody(me, sato));
+    // 12/1 の自分のシフトを手で直す (source が manual になる)
+    const list = (await call(cookie, "GET", "/shifts?from=2026-12-01&to=2026-12-01")).data.shifts;
+    const mine = list.find((s: any) => s.memberId === me.id);
+    await call(cookie, "PUT", `/shifts/${mine.id}`, { ...mine, startTime: "10:00" });
+
+    const second = await parsed(cookie);
+    const r = await call(cookie, "POST", `/imports/${second.id}/commit`, {
+      yearMonth: "2026-12",
+      rows: [{ readName: "山田太郎", target: { type: "member", memberId: me.id, rememberAlias: false }, cells: EXTRACTION.rows[0].cells }],
+    });
+    expect(r.data).toMatchObject({ created: 1, skippedManual: 1 });
+    const day1 = (await call(cookie, "GET", "/shifts?from=2026-12-01&to=2026-12-01")).data.shifts.filter(
+      (s: any) => s.memberId === me.id,
+    );
+    expect(day1.map((s: any) => [s.startTime, s.source])).toEqual([["10:00", "manual"]]);
   });
 
   it("記号表に無い記号があれば何も保存しない", async () => {
