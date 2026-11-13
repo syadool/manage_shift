@@ -11,6 +11,9 @@ import { ICON_PROPS } from "../components/Layout";
 import { Button, Checkbox, ErrorText, Field, Hint, LoadError, Section, TextInput } from "../components/ui";
 
 type Target = CommitInput["rows"][number]["target"];
+
+/** メンバー名・別名の上限 (サーバーの検証と同じ) */
+const NAME_MAX = 40;
 type Row = { readName: string; target: Target; cells: Record<number, string> };
 
 /** 読み取り結果から編集用の行を作る。名前が一致するメンバーがいれば紐付け、いなければ新規 */
@@ -23,7 +26,7 @@ function initialRows(result: Extraction, members: Member[]): Row[] {
       used.add(m.id);
       target = { type: "member", memberId: m.id, rememberAlias: true };
     } else {
-      target = { type: "new", name: r.name };
+      target = { type: "new", name: r.name.slice(0, NAME_MAX) };
     }
     return { readName: r.name, target, cells: Object.fromEntries(r.cells.map((c) => [c.day, c.symbol])) };
   });
@@ -177,7 +180,7 @@ export function ImportReview() {
       value === "skip"
         ? { type: "skip" }
         : value === "new"
-          ? { type: "new", name: r.readName }
+          ? { type: "new", name: r.readName.slice(0, NAME_MAX) }
           : { type: "member", memberId: value.slice(2), rememberAlias: true };
     setRow(i, { target });
   };
@@ -192,8 +195,9 @@ export function ImportReview() {
     setError("");
     const body: CommitInput = {
       yearMonth,
-      rows: rows.map((r) => ({
-        readName: r.readName,
+      // 「取り込まない」行は送らない (長すぎる名前や記号など、使わない値で保存全体が拒否されないように)
+      rows: rows.filter((r) => r.target.type !== "skip").map((r) => ({
+        readName: r.readName.slice(0, NAME_MAX),
         target: r.target,
         cells: Object.entries(r.cells)
           // 記号は表記ゆれをそろえずに送る (照合はサーバーで行う。「1」と「①」を取り違えないため)

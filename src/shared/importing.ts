@@ -79,7 +79,7 @@ export const commitInput = z.object({
   rows: z
     .array(
       z.object({
-        readName: z.string().trim().max(40),
+        readName: z.string().trim().max(40, "読み取った名前は40文字までです"),
         target: z.discriminatedUnion("type", [
           z.object({
             type: z.literal("member"),
@@ -94,7 +94,7 @@ export const commitInput = z.object({
           z.object({ type: z.literal("skip") }),
         ]),
         cells: z
-          .array(z.object({ day: z.number().int().min(1).max(31), symbol: z.string().max(8) }))
+          .array(z.object({ day: z.number().int().min(1).max(31), symbol: z.string().max(8, "記号は8文字までです") }))
           .max(31),
       }),
     )
