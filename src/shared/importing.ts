@@ -58,10 +58,17 @@ export function matchMember<M extends MemberLike>(readName: string, members: M[]
   return members.find((m) => [m.name, ...m.aliases].some((n) => normalizeName(n) === key)) ?? null;
 }
 
-/** 記号に一致する記号表の行 */
+/**
+ * 記号に一致する記号表の行。
+ * 完全一致 (前後の空白は除く) を優先し、無ければ表記ゆれ (全角/半角など) をそろえて照合する。
+ * そろえた結果が複数の記号に当たる場合 (例: 「1」と「①」) は、どれか決められないので null (未知の記号) にする
+ */
 export function matchCode<C extends CodeLike>(symbol: string, codes: C[]): C | null {
+  const exact = codes.filter((c) => c.symbol.trim() === symbol.trim());
+  if (exact.length === 1) return exact[0];
   const key = normalizeSymbol(symbol);
-  return codes.find((c) => normalizeSymbol(c.symbol) === key) ?? null;
+  const loose = codes.filter((c) => normalizeSymbol(c.symbol) === key);
+  return loose.length === 1 ? loose[0] : null;
 }
 
 /** 確定時の入力。行ごとに、既存メンバーへ紐付け / 新規メンバー / 取り込まない のいずれか */

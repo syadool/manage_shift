@@ -83,6 +83,16 @@ describe("ユーティリティ", () => {
     expect(matchCode(" A ", codes)?.id).toBe("a");
     expect(matchCode("a", codes)).toBeNull();
   });
+
+  it("表記ゆれをそろえると複数の記号に当たる場合は、完全一致だけを採用する", () => {
+    const codes = [
+      { id: "one", symbol: "1", isOff: false },
+      { id: "circled", symbol: "①", isOff: true },
+    ];
+    expect(matchCode("1", codes)?.id).toBe("one");
+    expect(matchCode("①", codes)?.id).toBe("circled");
+    expect(matchCode("１", codes)).toBeNull(); // 全角の1 はどちらとも決められない
+  });
 });
 
 describe("アップロード", () => {
@@ -202,6 +212,20 @@ describe("読み取り", () => {
     const up = await upload(a.cookie);
     expect((await call(b.cookie, "POST", `/imports/${up.data.import.id}/parse`, {})).status).toBe(404);
     expect((await call(b.cookie, "GET", `/imports/${up.data.import.id}`)).status).toBe(404);
+  });
+});
+
+describe("記号表の表記ゆれ", () => {
+  it("そろえると既存の記号と同じになる記号は登録・変更できない", async () => {
+    const { cookie } = await createUser();
+    const code = (symbol: string) => ({ symbol, isOff: false, startTime: "09:00", endTime: "17:00", breakMinutes: 0 });
+    expect((await call(cookie, "POST", "/shift-codes", code("1"))).status).toBe(201);
+    const dup = await call(cookie, "POST", "/shift-codes", code("①"));
+    expect(dup.status).toBe(409);
+    expect(dup.data.error).toContain("「1」");
+    const b = (await call(cookie, "POST", "/shift-codes", code("B"))).data.shiftCode;
+    expect((await call(cookie, "PUT", `/shift-codes/${b.id}`, code("１"))).status).toBe(409);
+    expect((await call(cookie, "PUT", `/shift-codes/${b.id}`, code("Ｂ"))).status).toBe(200); // 自分自身とは衝突しない
   });
 });
 

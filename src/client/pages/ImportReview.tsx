@@ -56,7 +56,7 @@ function AddCodeInline({ symbol, onAdded }: { symbol: string; onAdded: () => voi
     const ok = await run(() =>
       api("/shift-codes", {
         body: {
-          symbol: normalizeSymbol(symbol),
+          symbol: symbol.trim(),
           isOff,
           startTime: isOff ? null : start || null,
           endTime: isOff ? null : end || null,
@@ -137,7 +137,7 @@ export function ImportReview() {
       // 表に出ている (保存対象の) 日だけを見る。31日の無い月の31日などは保存しないので対象外
       for (const d of days) {
         const s = r.cells[d] ?? "";
-        if (normalizeSymbol(s) && !matchCode(s, codes)) set.add(normalizeSymbol(s));
+        if (normalizeSymbol(s) && !matchCode(s, codes)) set.add(s.trim());
       }
     }
     return [...set];
@@ -196,7 +196,8 @@ export function ImportReview() {
         readName: r.readName,
         target: r.target,
         cells: Object.entries(r.cells)
-          .map(([day, symbol]) => ({ day: Number(day), symbol: normalizeSymbol(symbol) }))
+          // 記号は表記ゆれをそろえずに送る (照合はサーバーで行う。「1」と「①」を取り違えないため)
+          .map(([day, symbol]) => ({ day: Number(day), symbol: symbol.trim() }))
           .filter((c) => c.symbol !== "" && days.includes(c.day)),
       })),
     };
