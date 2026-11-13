@@ -22,6 +22,39 @@ export const extractionSchema = z.object({
 });
 export type Extraction = z.infer<typeof extractionSchema>;
 
+/**
+ * Claude に返させる形。出力を短くするため、日付の列は days に一度だけ書き、
+ * 各行は days と同じ順・同じ数の記号の配列にする (セルごとに日付を書くと、大きな表で出力の上限を超える)
+ */
+export const ocrOutputSchema = z.object({
+  yearMonth: z.string().nullable(),
+  /** 表の日付の列 (左から順に「日」の数字) */
+  days: z.array(z.number().int()),
+  rows: z.array(z.object({ name: z.string(), symbols: z.array(z.string()) })),
+  notes: z.string(),
+});
+export type OcrOutput = z.infer<typeof ocrOutputSchema>;
+
+/**
+ * Claude の出力を Extraction に変換する。
+ * 記号の数が days と合わない行は、短い方に合わせ (推測で補わない)、notes に書き残す
+ */
+export function fromOcrOutput(out: OcrOutput): Extraction {
+  const mismatched: string[] = [];
+  const rows = out.rows.map((r, i) => {
+    if (r.symbols.length !== out.days.length) mismatched.push(r.name.trim() || `${i + 1}行目`);
+    const n = Math.min(r.symbols.length, out.days.length);
+    return { name: r.name, cells: out.days.slice(0, n).map((day, j) => ({ day, symbol: r.symbols[j] })) };
+  });
+  const notes = [
+    out.notes.trim(),
+    mismatched.length ? `日付の列と記号の数が合わない行がありました: ${mismatched.join("、")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return { yearMonth: out.yearMonth, rows, notes };
+}
+
 /** 読み取り結果を整える: 範囲外の日を捨て、同じ日の重複は最初を採用し、日付順に並べる */
 export function cleanExtraction(raw: Extraction): Extraction {
   const yearMonth = raw.yearMonth && /^\d{4}-\d{2}$/.test(raw.yearMonth) && isValidDate(`${raw.yearMonth}-01`)
