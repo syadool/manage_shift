@@ -1,1 +1,6 @@
+# ローカル開発用 (コミットしない .dev.vars にコピーして使う)
+# パスキーの RP ID / オリジン。空にすると localhost など、アクセスされたホストから自動で決める
+RP_ID=
+RP_ORIGIN=
+# シフト表画像の読み取りに使う Anthropic の API キー
 ANTHROPIC_API_KEY=

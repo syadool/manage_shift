@@ -36,7 +36,7 @@ npm run dev
 - 同じ月を取り込み直すと、画像から取り込んだシフトだけを置き換えます (手入力のシフトは残ります)
 - 費用の上限: アップロードは1ユーザー1日20枚まで、読み取りは1枚3回まで
 
-開発時は `.dev.vars` に API キーを書きます (`.dev.vars.example` をコピー。`.dev.vars` はコミットしません)。
+開発時は `.dev.vars` に API キーを書きます (`.dev.vars.example` をコピー。`.dev.vars` はコミットしません)。本番は上記の Secret を使います。
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
@@ -44,21 +44,24 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ## デプロイ (Cloudflare)
 
-初回だけ、自分の PC で次を実行します (Cloudflare アカウントが必要。無料プランで動きます)。
+本番は独自ドメイン **https://manageshift.fun** で公開しています (`wrangler.jsonc` の `routes`)。`workers.dev` とプレビュー URL は無効にしています。
+
+- D1: `manage-shift-db` (APAC)。ID は `wrangler.jsonc` に記載
+- R2: `manage-shift-images`
+- Secret: `ANTHROPIC_API_KEY` (シフト表画像の読み取り)。Cloudflare ダッシュボード → Workers & Pages → manage-shift → Settings → Variables and Secrets で設定する。値はリポジトリに置かない
+
+更新のたびに行うこと:
 
 ```bash
-npx wrangler login
-npx wrangler d1 create manage-shift-db        # 表示された database_id を wrangler.jsonc に書く
-npx wrangler r2 bucket create manage-shift-images
-npx wrangler secret put ANTHROPIC_API_KEY     # シフト表画像の読み取りに使う
-npm run db:migrate:remote
+npm run db:migrate:remote   # マイグレーションがあるとき
 npm run deploy
 ```
 
-2回目以降は `npm run db:migrate:remote` (マイグレーションがあるとき) と `npm run deploy` だけです。
 `npx wrangler deploy --dry-run` で、実際に公開せずに設定を確認できます。
+認証は `wrangler login`、または `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` で行います。
 
-- **パスキーはドメインに結び付きます。** 最初に使うドメイン (`*.workers.dev` か独自ドメイン) を決めてから登録してください。独自ドメインに移すと、パスキーの作り直しが必要です。固定したい場合は `wrangler.jsonc` の `RP_ID` / `RP_ORIGIN` を設定します
+- **パスキーは `manageshift.fun` に結び付いています** (`RP_ID` / `RP_ORIGIN`)。ドメインを変えると、パスキーの登録し直しが必要です
+- ローカル開発では `.dev.vars` で `RP_ID` / `RP_ORIGIN` を空にし、localhost で登録できるようにしています (`.dev.vars.example` をコピー)
 - 画面側のセキュリティヘッダー (CSP など) は `public/_headers`、API 側は Hono の `secureHeaders` で付けています
 
 ## ホーム画面に追加 (PWA)

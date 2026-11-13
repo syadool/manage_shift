@@ -12,8 +12,8 @@
     {
       "binding": "DB",
       "database_name": "manage-shift-db",
-      // `wrangler d1 create manage-shift-db` で発行された ID に置き換える
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      // 本番の D1 (APAC)。ID は秘密情報ではない
+      "database_id": "53540127-9a21-40a9-8ac7-d8537acbcb15",
       "migrations_dir": "migrations"
     }
   ],
@@ -23,8 +23,13 @@
       "bucket_name": "manage-shift-images"
     }
   ],
-  // パスキーの RP ID / オリジン。空ならアクセスされたホストから自動で決める
-  "vars": { "RP_ID": "", "RP_ORIGIN": "" },
+  // 公開先は独自ドメインだけにする。workers.dev やプレビュー URL では公開しない
+  // (パスキーはドメインに結び付くため、別のドメインで登録されないように)
+  "routes": [{ "pattern": "manageshift.fun", "custom_domain": true }],
+  "workers_dev": false,
+  "preview_urls": false,
+  // パスキーの RP ID / オリジン。ローカル開発では .dev.vars で空にし、アクセスされたホストから自動で決める
+  "vars": { "RP_ID": "manageshift.fun", "RP_ORIGIN": "https://manageshift.fun" },
   // ANTHROPIC_API_KEY は secret (本番: `wrangler secret put ANTHROPIC_API_KEY`、開発: .dev.vars)
   "observability": { "enabled": true }
 }
