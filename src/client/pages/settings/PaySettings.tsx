@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import type { SettingsInput } from "../../../shared/schemas";
 import { api } from "../../lib/api";
 import { useAction, useResource } from "../../lib/useResource";
-import { Button, Checkbox, ErrorText, Field, Hint, Section, Select, TextInput } from "../../components/ui";
+import { Button, Checkbox, ErrorText, Field, Hint, LoadError, Section, Select, TextInput } from "../../components/ui";
 
 /** 年収の壁の候補。制度改正で変わるため、あくまで入力補助 */
 const WALL_PRESETS = [
@@ -44,7 +44,7 @@ const toForm = (s: SettingsInput): Form => {
 const num = (v: string) => (v.trim() === "" ? 0 : Number(v.replace(/[,，]/g, "")));
 
 export function PaySettings() {
-  const { data } = useResource<{ settings: SettingsInput }>("/settings");
+  const { data, error: loadError, reload } = useResource<{ settings: SettingsInput }>("/settings");
   const [form, setForm] = useState<Form | null>(null);
   const [saved, setSaved] = useState(false);
   const { busy, error, run } = useAction();
@@ -53,7 +53,13 @@ export function PaySettings() {
     if (data) setForm(toForm(data.settings));
   }, [data]);
 
-  if (!form) return null;
+  if (!form) {
+    return loadError ? (
+      <Section title="給与">
+        <LoadError message={loadError} onRetry={reload} />
+      </Section>
+    ) : null;
+  }
   const set = (patch: Partial<Form>) => {
     setForm({ ...form, ...patch });
     setSaved(false);

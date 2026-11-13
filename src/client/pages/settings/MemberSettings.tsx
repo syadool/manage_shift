@@ -4,7 +4,7 @@ import type { MemberInput } from "../../../shared/schemas";
 import { api } from "../../lib/api";
 import { useAction, useResource } from "../../lib/useResource";
 import { ICON_PROPS } from "../../components/Layout";
-import { Button, Checkbox, ErrorText, Field, Hint, Section, TextInput } from "../../components/ui";
+import { Button, Checkbox, ErrorText, Field, Hint, Section, TextInput, LoadError } from "../../components/ui";
 
 type Member = MemberInput & { id: string };
 
@@ -71,7 +71,7 @@ function MemberForm({
 }
 
 export function MemberSettings() {
-  const { data, reload } = useResource<{ members: Member[] }>("/members");
+  const { data, error: loadError, reload } = useResource<{ members: Member[] }>("/members");
   const [editing, setEditing] = useState<string | null>(null);
   const { error, run } = useAction();
   const hasMe = data?.members.some((m) => m.isMe);
@@ -119,7 +119,9 @@ export function MemberSettings() {
         )}
       </ul>
       {data && !hasMe && <Hint>「自分」に設定したメンバーのシフトで給与を計算します</Hint>}
-      {editing === null && (
+      {loadError && <LoadError message={loadError} onRetry={reload} />}
+      {/* 読み込めていない間は追加フォームを出さない (空の一覧と区別するため) */}
+      {editing === null && data && (
         <div className="max-w-md">
           <MemberForm initial={EMPTY} submitLabel="メンバーを追加" onSubmit={save(null)} />
         </div>
