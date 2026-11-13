@@ -311,8 +311,25 @@ export const importRoutes = new Hono<AppEnv>()
                 ),
               ),
           );
+          // 照合用の名前は、直前の UPDATE で別名が実際に追加された場合だけ登録する
+          // (同時の取り込みで上限に達し追加されなかったとき、members と member_names がずれないように)
           statements.push(
-            db.insert(memberNames).values({ userId, memberId, normalized: normalizeName(r.readName) }),
+            db.insert(memberNames).select(
+              db
+                .select({
+                  userId: sql<string>`${userId}`.as("user_id"),
+                  memberId: sql<string>`${memberId}`.as("member_id"),
+                  normalized: sql<string>`${normalizeName(r.readName)}`.as("normalized"),
+                })
+                .from(members)
+                .where(
+                  and(
+                    eq(members.id, memberId),
+                    eq(members.userId, userId),
+                    sql`exists (select 1 from json_each(${members.aliases}) where value = ${r.readName})`,
+                  ),
+                ),
+            ),
           );
         }
       } else {

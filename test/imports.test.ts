@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { env, exports } from "cloudflare:workers";
 import { ocr, ExtractError } from "../src/worker/ocr/extract";
 import { cleanExtraction, matchCode, matchMember, type Extraction } from "../src/shared/importing";
+import { normalizeName } from "../src/shared/names";
 import { sniffImageType, MAX_PARSE_ATTEMPTS } from "../src/worker/routes/imports";
 import { call, createUser, ORIGIN } from "./helpers";
 
@@ -372,6 +373,35 @@ describe("確定", () => {
     // 設定画面からの更新もこれまでどおりできる
     expect((await call(cookie, "PUT", `/members/${sato.id}`, { ...after, isMe: false })).status).toBe(200);
     void me;
+  });
+
+  it("別名の追加が上限で弾かれたら、照合用の名前も登録しない (同時の取り込みを想定)", async () => {
+    const { cookie, sato, userId } = await setup();
+    // 画面上は19個 (読み込み時点) だが、確定の直前に別の取り込みが20個目を足した状態を作る
+    const nineteen = Array.from({ length: 19 }, (_, i) => `さとう${i}`);
+    expect((await call(cookie, "PUT", `/members/${sato.id}`, { name: "佐藤 花子", aliases: nineteen, isMe: false })).status).toBe(200);
+    const { id } = await parsed(cookie);
+    // 確定の処理がメンバーを読み込んだ後に20個目が足されるよう、D1 に直接トリガーを置いて再現する
+    await env.DB.prepare(
+      `create trigger add_20th before update of status on imports when new.status = 'committing'
+       begin update members set aliases = json_insert(aliases, '$[#]', '別の取り込み') where id = '${sato.id}'; end`,
+    ).run();
+    try {
+      const r = await call(cookie, "POST", `/imports/${id}/commit`, {
+        yearMonth: "2026-12",
+        rows: [{ readName: "ｻﾄｳ", target: { type: "member", memberId: sato.id, rememberAlias: true }, cells: [{ day: 1, symbol: "A" }] }],
+      });
+      expect(r.status).toBe(200);
+    } finally {
+      await env.DB.prepare("drop trigger add_20th").run();
+    }
+    const after = (await call(cookie, "GET", "/members")).data.members.find((m: any) => m.id === sato.id);
+    expect(after.aliases).toHaveLength(20);
+    expect(after.aliases).not.toContain("ｻﾄｳ");
+    const names = await env.DB.prepare("select normalized from member_names where user_id = ? and member_id = ?")
+      .bind(userId, sato.id)
+      .all();
+    expect(names.results.map((n: any) => n.normalized)).not.toContain(normalizeName("ｻﾄｳ"));
   });
 
   it("記号表に無い記号があれば何も保存しない", async () => {
