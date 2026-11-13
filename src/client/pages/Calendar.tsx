@@ -1,9 +1,9 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Link, useSearchParams } from "react-router";
 import { workedMinutes } from "../../shared/calc";
-import { addMonths, calendarCells, monthRange, today, WEEKDAYS, weekday } from "../../shared/dates";
+import { addMonths, calendarCells, isValidDate, monthRange, today, WEEKDAYS, weekday } from "../../shared/dates";
 import { ICON_PROPS } from "../components/Layout";
-import { Button, Hint } from "../components/ui";
+import { Button, ErrorText, Hint } from "../components/ui";
 import { coworkersOn, formatMinutes, shortTime, useShiftData, type Member } from "../lib/shiftData";
 
 const monthLabel = (m: string) => `${Number(m.slice(0, 4))}年${Number(m.slice(5, 7))}月`;
@@ -12,9 +12,11 @@ export const dayLabel = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slic
 export function Calendar() {
   const [params, setParams] = useSearchParams();
   const now = today();
-  const month = /^\d{4}-\d{2}$/.test(params.get("m") ?? "") ? params.get("m")! : now.slice(0, 7);
+  // 存在しない月 (例: 2026-13) は今月として扱う
+  const m = params.get("m") ?? "";
+  const month = /^\d{4}-\d{2}$/.test(m) && isValidDate(`${m}-01`) ? m : now.slice(0, 7);
   const { from, to } = monthRange(month);
-  const { loaded, me, memberById, byDate } = useShiftData(from, to);
+  const { loaded, error, me, memberById, byDate } = useShiftData(from, to);
   const go = (n: number) => setParams({ m: addMonths(month, n) });
 
   const cells = calendarCells(month);
@@ -38,6 +40,8 @@ export function Calendar() {
           </Button>
         </div>
       </div>
+
+      <ErrorText>{error && `読み込みに失敗しました: ${error}`}</ErrorText>
 
       {loaded && !me && (
         <Hint>

@@ -5,7 +5,7 @@ import { overlapMinutes, span, workedMinutes } from "../../shared/calc";
 import { addDays, isValidDate } from "../../shared/dates";
 import { ICON_PROPS } from "../components/Layout";
 import { ShiftForm } from "../components/ShiftForm";
-import { Button, Hint } from "../components/ui";
+import { Button, ErrorText, Hint } from "../components/ui";
 import { formatMinutes, shortTime, useShiftData, type Shift } from "../lib/shiftData";
 import { dayLabel } from "./Calendar";
 
@@ -37,7 +37,7 @@ function DayView({ date }: { date: string }) {
   const [editing, setEditing] = useState<Shift | "new" | null>(null);
   if (!valid) return <Navigate to="/" replace />;
 
-  const { loaded, members, codes, me, memberById, byDate, reloadShifts } = data;
+  const { loaded, error, members, codes, me, memberById, byDate, reloadShifts } = data;
   const dayShifts = byDate.get(date) ?? [];
   const mine = dayShifts.filter((s) => s.memberId === me?.id);
   const rows = [...dayShifts].sort(
@@ -69,7 +69,8 @@ function DayView({ date }: { date: string }) {
         </div>
       </div>
 
-      {loaded && dayShifts.length === 0 && <p className="py-2 text-sm text-ink-500">シフトなし</p>}
+      <ErrorText>{error && `読み込みに失敗しました: ${error}`}</ErrorText>
+      {loaded && !error && dayShifts.length === 0 && <p className="py-2 text-sm text-ink-500">シフトなし</p>}
 
       {dayShifts.length > 0 && (
         <div className="grid grid-cols-[80px_1fr] gap-x-2">

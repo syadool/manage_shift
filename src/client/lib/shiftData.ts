@@ -12,7 +12,11 @@ export function useShiftData(from: string, to: string) {
   const [members, setMembers] = useState<Member[]>();
   const [codes, setCodes] = useState<ShiftCode[]>();
   const [shifts, setShifts] = useState<Shift[]>();
-  const [error, setError] = useState("");
+  // メンバー・記号の取得エラーと、シフトの取得エラーは別々に持つ
+  // (シフトの再取得が成功しても、メンバー側のエラーを消さないため)
+  const [refError, setRefError] = useState("");
+  const [shiftError, setShiftError] = useState("");
+  const error = refError || shiftError;
 
   // 期間を素早く切り替えたとき、古い期間の応答が後から届いて上書きしないよう、
   // 最後に出した要求の応答だけを反映する
@@ -21,16 +25,23 @@ export function useShiftData(from: string, to: string) {
     const gen = ++generation.current;
     api<{ shifts: Shift[] }>(`/shifts?from=${from}&to=${to}`)
       .then((r) => {
-        if (gen === generation.current) setShifts(r.shifts);
+        if (gen !== generation.current) return;
+        setShifts(r.shifts);
+        setShiftError("");
       })
       .catch((e: Error) => {
-        if (gen === generation.current) setError(e.message);
+        if (gen === generation.current) setShiftError(e.message || "読み込みに失敗しました");
       });
   }, [from, to]);
 
   useEffect(() => {
-    api<{ members: Member[] }>("/members").then((r) => setMembers(r.members));
-    api<{ shiftCodes: ShiftCode[] }>("/shift-codes").then((r) => setCodes(r.shiftCodes));
+    const fail = (e: Error) => setRefError(e.message || "読み込みに失敗しました");
+    api<{ members: Member[] }>("/members")
+      .then((r) => setMembers(r.members))
+      .catch(fail);
+    api<{ shiftCodes: ShiftCode[] }>("/shift-codes")
+      .then((r) => setCodes(r.shiftCodes))
+      .catch(fail);
   }, []);
   useEffect(reloadShifts, [reloadShifts]);
 
