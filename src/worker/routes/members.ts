@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, asc, desc, eq, ne } from "drizzle-orm";
+import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { memberInput, type MemberInput } from "../../shared/schemas";
 import { normalizeName } from "../../shared/names";
 import { getDb, type Db } from "../db/client";
@@ -35,12 +35,23 @@ async function findNameConflict(db: Db, userId: string, input: MemberInput, excl
   return null;
 }
 
-/** 「自分」は1人だけ。isMe=true で保存するときは他を外す */
+/**
+ * 「自分」は1人だけ。isMe=true で保存するときは他を外す。
+ * 対象 (id) が本人のメンバーとして存在する場合に限って外す。
+ * 更新対象が削除済みなどで保存に失敗したとき、元の「自分」が消えないようにするため。
+ * 判定を同じ UPDATE 文の中で行うので、別リクエストとの競合でも状態がずれない
+ */
 function clearOtherMe(db: Db, userId: string, id: string) {
   return db
     .update(members)
     .set({ isMe: false })
-    .where(and(eq(members.userId, userId), ne(members.id, id)));
+    .where(
+      and(
+        eq(members.userId, userId),
+        ne(members.id, id),
+        sql`exists (select 1 from ${members} as target where target.id = ${id} and target.user_id = ${userId})`,
+      ),
+    );
 }
 
 export const memberRoutes = new Hono<AppEnv>()
@@ -64,9 +75,8 @@ export const memberRoutes = new Hono<AppEnv>()
     }
     const id = crypto.randomUUID();
     const insert = db.insert(members).values({ id, userId, ...input }).returning(columns);
-    const [, [row]] = input.isMe
-      ? await db.batch([clearOtherMe(db, userId, id), insert])
-      : [null, await insert];
+    // 先に挿入し、その後で他の「自分」を外す (clearOtherMe は対象の存在を条件にするため)
+    const [[row]] = input.isMe ? await db.batch([insert, clearOtherMe(db, userId, id)]) : [await insert];
     return c.json({ member: row }, 201);
   })
 

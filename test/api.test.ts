@@ -152,6 +152,26 @@ describe("メンバー", () => {
     expect(r2.data.error).toContain("山田 太郎");
   });
 
+  it("存在しないメンバーを isMe で更新しても、今の「自分」は外れない", async () => {
+    const { cookie } = await createUser();
+    const me = await call(cookie, "POST", "/members", { name: "自分", aliases: [], isMe: true });
+    const r = await call(cookie, "PUT", "/members/does-not-exist", { name: "誰か", aliases: [], isMe: true });
+    expect(r.status).toBe(404);
+    const list = (await call(cookie, "GET", "/members")).data.members;
+    expect(list.find((m: any) => m.id === me.data.member.id).isMe).toBe(true);
+  });
+
+  it("他ユーザーのメンバーを isMe で更新しても、自分の「自分」は外れない", async () => {
+    const a = await createUser();
+    const b = await createUser();
+    const aMe = await call(a.cookie, "POST", "/members", { name: "A", aliases: [], isMe: true });
+    const bMe = await call(b.cookie, "POST", "/members", { name: "B", aliases: [], isMe: true });
+    const r = await call(a.cookie, "PUT", `/members/${bMe.data.member.id}`, { name: "X", aliases: [], isMe: true });
+    expect(r.status).toBe(404);
+    expect((await call(a.cookie, "GET", "/members")).data.members[0]).toMatchObject({ id: aMe.data.member.id, isMe: true });
+    expect((await call(b.cookie, "GET", "/members")).data.members[0]).toMatchObject({ name: "B", isMe: true });
+  });
+
   it("自分自身の名前は更新時に重複扱いしない", async () => {
     const { cookie } = await createUser();
     const a = await call(cookie, "POST", "/members", { name: "鈴木", aliases: [], isMe: false });
