@@ -357,6 +357,23 @@ describe("確定", () => {
     expect(r.data).toMatchObject({ created: 100, members: 100 });
   });
 
+  it("別名が上限に達しているメンバーには別名を足さず、シフトは保存する", async () => {
+    const { cookie, sato, me } = await setup();
+    const aliases = Array.from({ length: 20 }, (_, i) => `さとう${i}`);
+    expect((await call(cookie, "PUT", `/members/${sato.id}`, { name: "佐藤 花子", aliases, isMe: false })).status).toBe(200);
+    const { id } = await parsed(cookie);
+    const r = await call(cookie, "POST", `/imports/${id}/commit`, {
+      yearMonth: "2026-12",
+      rows: [{ readName: "ｻﾄｳ", target: { type: "member", memberId: sato.id, rememberAlias: true }, cells: [{ day: 1, symbol: "A" }] }],
+    });
+    expect(r.data).toMatchObject({ created: 1, aliasesSkipped: 1 });
+    const after = (await call(cookie, "GET", "/members")).data.members.find((m: any) => m.id === sato.id);
+    expect(after.aliases).toHaveLength(20);
+    // 設定画面からの更新もこれまでどおりできる
+    expect((await call(cookie, "PUT", `/members/${sato.id}`, { ...after, isMe: false })).status).toBe(200);
+    void me;
+  });
+
   it("記号表に無い記号があれば何も保存しない", async () => {
     const { cookie, me, sato } = await setup();
     const { id } = await parsed(cookie);

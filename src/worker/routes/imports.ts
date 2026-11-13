@@ -3,6 +3,7 @@ import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { isValidDate, monthRange } from "../../shared/dates";
 import { commitInput, matchCode, normalizeSymbol, type Extraction } from "../../shared/importing";
 import { normalizeName } from "../../shared/names";
+import { MAX_ALIASES } from "../../shared/schemas";
 import { requireAuth } from "../auth/session";
 import { getDb } from "../db/client";
 import { imports, memberNames, members, shiftCodes, shifts } from "../db/schema";
@@ -274,6 +275,7 @@ export const importRoutes = new Hono<AppEnv>()
       for (const r of rows) manualDays.add(`${r.memberId}|${r.date}`);
     }
     let skippedManual = 0;
+    let aliasesSkipped = 0;
     const statements = [];
     const shiftValues: (typeof shifts.$inferInsert)[] = [];
     const targetIds: string[] = [];
@@ -289,7 +291,11 @@ export const importRoutes = new Hono<AppEnv>()
         memberId = r.target.memberId;
         const m = memberById.get(memberId)!;
         const known = [m.name, ...m.aliases].map(normalizeName);
-        if (r.target.rememberAlias && r.readName && !known.includes(normalizeName(r.readName))) {
+        const wantsAlias = r.target.rememberAlias && r.readName && !known.includes(normalizeName(r.readName));
+        if (wantsAlias && m.aliases.length >= MAX_ALIASES) {
+          // 別名が上限に達していれば覚えない (設定画面で保存できない状態のメンバーを作らないため)。シフトは保存する
+          aliasesSkipped++;
+        } else if (wantsAlias) {
           // 読み取った名前を別名として覚える (次回から自動で紐付く)
           statements.push(
             // 読み込んだ時点の配列で置き換えず、DB の現在の値の末尾に追加する
@@ -297,7 +303,13 @@ export const importRoutes = new Hono<AppEnv>()
             db
               .update(members)
               .set({ aliases: sql`json_insert(${members.aliases}, '$[#]', ${r.readName})` })
-              .where(and(eq(members.id, memberId), eq(members.userId, userId))),
+              .where(
+                and(
+                  eq(members.id, memberId),
+                  eq(members.userId, userId),
+                  sql`json_array_length(${members.aliases}) < ${MAX_ALIASES}`,
+                ),
+              ),
           );
           statements.push(
             db.insert(memberNames).values({ userId, memberId, normalized: normalizeName(r.readName) }),
@@ -391,5 +403,6 @@ export const importRoutes = new Hono<AppEnv>()
       created: shiftValues.length,
       members: targetIds.length,
       skippedManual,
+      aliasesSkipped,
     });
   });
