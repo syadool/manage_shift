@@ -52,10 +52,11 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
+      # 公開直後や、カスタムドメインの証明書の発行中は数分つながらないことがあるため、最大5分待つ
       - name: Smoke test
         run: |
-          for i in 1 2 3 4 5 6; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' https://manageshift.fun/api/health) && [ "$code" = "200" ] && echo "health: $code" && exit 0
-            echo "health: $code (retry $i)"; sleep 10
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://manageshift.fun/api/health) && [ "$code" = "200" ] && echo "health: $code" && exit 0
+            echo "health: $code (retry $i/30)"; sleep 10
           done
           exit 1
