@@ -28,3 +28,6 @@ app.route("/imports", importRoutes);
 app.route("/stats", statsRoutes);
 
 export default app;
+
+// Workflow のクラスは Worker のエントリーから公開する必要がある
+export { ParseWorkflow } from "./ocr/workflow";

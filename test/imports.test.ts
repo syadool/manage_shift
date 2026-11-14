@@ -3,12 +3,15 @@ import { env, exports } from "cloudflare:workers";
 import { ocr, ExtractError } from "../src/worker/ocr/extract";
 import { cleanExtraction, fromOcrOutput, matchCode, matchMember, type Extraction } from "../src/shared/importing";
 import { normalizeName } from "../src/shared/names";
-import { sniffImageType, MAX_PARSE_ATTEMPTS } from "../src/worker/routes/imports";
+import { sniffImageType, MAX_PARSE_ATTEMPTS, STALE_PARSE_SECONDS } from "../src/worker/routes/imports";
+import { parseRunner, runParse } from "../src/worker/ocr/runParse";
 import { call, createUser, ORIGIN } from "./helpers";
 
 const realExtract = ocr.extract;
+const realStart = parseRunner.start;
 afterEach(() => {
   ocr.extract = realExtract;
+  parseRunner.start = realStart;
 });
 
 /** 1x1 の PNG */
@@ -231,6 +234,75 @@ describe("読み取り", () => {
     };
     await call(cookie, "POST", `/imports/${id}/parse`, {});
     expect((await call(cookie, "GET", `/imports/${id}`)).data.import).toMatchObject({ status: "parsed", error: null });
+  });
+
+  it("裏で読み取るあいだは 202 と読み取り中を返し、終わったら結果を保存する", async () => {
+    const { cookie } = await setup();
+    let started: { importId: string; token: string } | undefined;
+    parseRunner.start = async (_e, params) => {
+      started = params; // Workflow の開始だけ (まだ実行しない)
+    };
+    ocr.extract = async () => EXTRACTION;
+    const up = await upload(cookie);
+    const id = up.data.import.id;
+    const p = await call(cookie, "POST", `/imports/${id}/parse`, {});
+    expect(p.status).toBe(202);
+    expect(p.data.import).toMatchObject({ status: "parsing", parseAttempts: 1, error: null });
+
+    // 読み取り中は、もう一度始められない (回数も増えない)
+    const again = await call(cookie, "POST", `/imports/${id}/parse`, {});
+    expect(again.status).toBe(409);
+
+    expect(await runParse(env, started!.importId, started!.token)).toBe("parsed");
+    expect((await call(cookie, "GET", `/imports/${id}`)).data.import).toMatchObject({ status: "parsed", parseAttempts: 1 });
+    // 同じ読み取りをもう一度実行しても、二重には保存しない
+    expect(await runParse(env, started!.importId, started!.token)).toBe("stale");
+  });
+
+  it("読み取り中のまま長く止まったものは、やり直せる。止まった方の結果は使わない", async () => {
+    const { cookie } = await setup();
+    const tokens: string[] = [];
+    parseRunner.start = async (_e, params) => {
+      tokens.push(params.token);
+    };
+    const up = await upload(cookie);
+    const id = up.data.import.id;
+    await call(cookie, "POST", `/imports/${id}/parse`, {});
+    await env.DB.prepare("update imports set parse_started_at = unixepoch() - ? where id = ?")
+      .bind(STALE_PARSE_SECONDS + 1, id)
+      .run();
+    const retry = await call(cookie, "POST", `/imports/${id}/parse`, {});
+    expect(retry.status).toBe(202);
+    expect(retry.data.import.parseAttempts).toBe(2);
+
+    ocr.extract = async () => EXTRACTION;
+    expect(await runParse(env, id, tokens[0])).toBe("stale");
+    expect(await runParse(env, id, tokens[1])).toBe("parsed");
+  });
+
+  it("読み取りを開始できなければ失敗として記録する", async () => {
+    const { cookie } = await setup();
+    parseRunner.start = async () => {
+      throw new Error("workflow unavailable");
+    };
+    const up = await upload(cookie);
+    const r = await call(cookie, "POST", `/imports/${up.data.import.id}/parse`, {});
+    expect(r.status).toBe(502);
+    expect((await call(cookie, "GET", `/imports/${up.data.import.id}`)).data.import).toMatchObject({
+      status: "failed",
+      error: "読み取りを開始できませんでした",
+    });
+  });
+
+  it("予期しないエラーも失敗として記録する (読み取り中のまま残さない)", async () => {
+    const { cookie } = await setup();
+    ocr.extract = async () => {
+      throw new TypeError("boom");
+    };
+    const up = await upload(cookie);
+    const r = await call(cookie, "POST", `/imports/${up.data.import.id}/parse`, {});
+    expect(r.status).toBe(502);
+    expect((await call(cookie, "GET", `/imports/${up.data.import.id}`)).data.import.status).toBe("failed");
   });
 
   it("他ユーザーの取り込みは読み取れない", async () => {
