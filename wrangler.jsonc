@@ -36,6 +36,9 @@
   "preview_urls": false,
   // パスキーの RP ID / オリジン。ローカル開発では .dev.vars で空にし、アクセスされたホストから自動で決める
   "vars": { "RP_ID": "manageshift.fun", "RP_ORIGIN": "https://manageshift.fun" },
-  // ANTHROPIC_API_KEY は secret (本番: `wrangler secret put ANTHROPIC_API_KEY`、開発: .dev.vars)
+  // ANTHROPIC_API_KEY・GOOGLE_CLIENT_ID・GOOGLE_CLIENT_SECRET・TOKEN_ENCRYPTION_KEY は secret
+  // (本番: `wrangler secret put <名前>`、開発: .dev.vars)
+  // Google カレンダーへの反映が失敗・途中で終わったものを定期的にやり直す
+  "triggers": { "crons": ["*/15 * * * *"] },
   "observability": { "enabled": true }
 }

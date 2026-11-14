@@ -7,7 +7,15 @@ export default defineConfig(async () => {
     plugins: [
       cloudflareTest({
         wrangler: { configPath: "./wrangler.jsonc" },
-        miniflare: { bindings: { TEST_MIGRATIONS: migrations } },
+        miniflare: {
+          bindings: {
+            TEST_MIGRATIONS: migrations,
+            // Google カレンダー連携のテスト用 (Google への通信は test/gcal.test.ts で差し替える)
+            GOOGLE_CLIENT_ID: "test-client",
+            GOOGLE_CLIENT_SECRET: "test-secret",
+            TOKEN_ENCRYPTION_KEY: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+          },
+        },
       }),
     ],
     test: {

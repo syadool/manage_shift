@@ -7,6 +7,7 @@ import { MAX_ALIASES } from "../../shared/schemas";
 import { requireAuth } from "../auth/session";
 import { getDb } from "../db/client";
 import { imports, memberNames, members, shiftCodes, shifts } from "../db/schema";
+import { markDirtyAndSync } from "../gcal/sync";
 import { parseRunner } from "../ocr/runParse";
 import type { AppEnv } from "../types";
 import { validate } from "../validate";
@@ -426,6 +427,7 @@ export const importRoutes = new Hono<AppEnv>()
       }
       throw e;
     }
+    await markDirtyAndSync(c, userId);
     return c.json({
       ok: true,
       yearMonth: input.yearMonth,

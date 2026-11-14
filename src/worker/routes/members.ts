@@ -5,6 +5,7 @@ import { normalizeName } from "../../shared/names";
 import { getDb, type Db } from "../db/client";
 import { memberNames, members } from "../db/schema";
 import { requireAuth } from "../auth/session";
+import { syncAfterWrite } from "../gcal/sync";
 import type { AppEnv } from "../types";
 import { validate } from "../validate";
 
@@ -74,6 +75,8 @@ function clearOtherMe(db: Db, userId: string, id: string) {
 
 export const memberRoutes = new Hono<AppEnv>()
   .use(requireAuth)
+  // 変更を Google カレンダーに反映する
+  .use(syncAfterWrite)
   .get("/", async (c) => {
     const rows = await getDb(c.env)
       .select(columns)

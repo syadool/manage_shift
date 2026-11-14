@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 import { authErrorMessage, guessDeviceName, useAuth } from "../lib/auth";
 import { Button, ErrorText, Section } from "../components/ui";
 import { ICON_PROPS } from "../components/Layout";
+import { CalendarSettings } from "./settings/CalendarSettings";
 import { MemberSettings } from "./settings/MemberSettings";
 import { PaySettings } from "./settings/PaySettings";
 import { ShiftCodeSettings } from "./settings/ShiftCodeSettings";
@@ -88,6 +89,7 @@ export function Settings() {
       <PaySettings />
       <ShiftCodeSettings />
       <MemberSettings />
+      <CalendarSettings />
       <PasskeySettings />
       <Section title="アカウント">
         <p className="pb-2 text-base">{user?.displayName}</p>

@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { secureHeaders } from "hono/secure-headers";
 import { authRoutes } from "./auth/routes";
 import { loadSession, sameOriginOnly } from "./auth/session";
+import { syncPending } from "./gcal/sync";
+import { gcalRoutes } from "./routes/gcal";
 import { importRoutes } from "./routes/imports";
 import { memberRoutes } from "./routes/members";
 import { settingsRoutes } from "./routes/settings";
@@ -26,8 +28,15 @@ app.route("/members", memberRoutes);
 app.route("/shifts", shiftRoutes);
 app.route("/imports", importRoutes);
 app.route("/stats", statsRoutes);
+app.route("/gcal", gcalRoutes);
 
-export default app;
+export default {
+  fetch: app.fetch,
+  /** Google カレンダーへの反映が失敗・途中で終わったものをやり直す */
+  async scheduled(_controller, env, ctx) {
+    ctx.waitUntil(syncPending(env));
+  },
+} satisfies ExportedHandler<Env>;
 
 // Workflow のクラスは Worker のエントリーから公開する必要がある
 export { ParseWorkflow } from "./ocr/workflow";

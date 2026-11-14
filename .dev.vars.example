@@ -4,3 +4,9 @@ RP_ID=
 RP_ORIGIN=
 # シフト表画像の読み取りに使う Anthropic の API キー
 ANTHROPIC_API_KEY=
+# Google カレンダー連携 (任意)。Google Cloud Console の OAuth クライアント (ウェブ アプリケーション)
+# 未設定なら連携機能は無効になる
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+# リフレッシュトークンの暗号化キー (32 バイトを base64)。例: openssl rand -base64 32
+TOKEN_ENCRYPTION_KEY=
