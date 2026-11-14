@@ -25,6 +25,10 @@
       "bucket_name": "manage-shift-images"
     }
   ],
+  // シフト表の読み取りを裏で実行する (画面との接続が切れても止まらないように)
+  "workflows": [
+    { "name": "manage-shift-parse", "binding": "PARSE_WORKFLOW", "class_name": "ParseWorkflow" }
+  ],
   // 公開先は独自ドメインだけにする。workers.dev やプレビュー URL では公開しない
   // (パスキーはドメインに結び付くため、別のドメインで登録されないように)
   "routes": [{ "pattern": "manageshift.fun", "custom_domain": true }],

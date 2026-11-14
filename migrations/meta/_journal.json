@@ -22,6 +22,13 @@
       "when": 1794548841995,
       "tag": "0002_import_tracking",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1794638196193,
+      "tag": "0003_parse_started_at",
+      "breakpoints": true
     }
   ]
 }

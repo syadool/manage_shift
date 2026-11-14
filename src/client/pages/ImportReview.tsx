@@ -159,8 +159,7 @@ export function ImportReview() {
       />
     );
   }
-  if (!imp.data || !members || !codesRes.data || !rows) return null;
-  if (imp.data.import.status !== "parsed" || !result) {
+  if (imp.data && (imp.data.import.status !== "parsed" || !result)) {
     return (
       <p className="text-sm text-ink-500">
         この取り込みは確認できません。
@@ -170,6 +169,7 @@ export function ImportReview() {
       </p>
     );
   }
+  if (!imp.data || !result || !members || !codesRes.data || !rows) return null;
 
   const setRow = (i: number, patch: Partial<Row>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const setCell = (i: number, day: number, symbol: string) =>
