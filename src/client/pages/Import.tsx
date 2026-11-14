@@ -168,7 +168,7 @@ export function Import() {
           画像を選ぶ
         </Button>
         {phase === "uploading" && <p className="pt-2 text-sm text-ink-500">アップロード中…</p>}
-        {phase === "reading" && <p className="pt-2 text-sm text-ink-500">読み取り中… (1〜2分かかります。画面を閉じても読み取りは続きます)</p>}
+        {phase === "reading" && <p className="pt-2 text-sm text-ink-500">読み取り中… (3〜5分かかります。画面を閉じても読み取りは続きます)</p>}
         <ErrorText>{error}</ErrorText>
         <Hint>行が人、列が日付の表を読み取ります。読み取り後に内容を確認・修正してから保存します</Hint>
       </Section>
