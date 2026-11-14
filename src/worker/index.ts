@@ -37,3 +37,6 @@ export default {
     ctx.waitUntil(syncPending(env));
   },
 } satisfies ExportedHandler<Env>;
+
+// Workflow のクラスは Worker のエントリーから公開する必要がある
+export { ParseWorkflow } from "./ocr/workflow";

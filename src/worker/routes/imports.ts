@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
 import { isValidDate, monthRange } from "../../shared/dates";
 import { commitInput, matchCode, normalizeSymbol, type Extraction } from "../../shared/importing";
 import { normalizeName } from "../../shared/names";
@@ -7,8 +7,8 @@ import { MAX_ALIASES } from "../../shared/schemas";
 import { requireAuth } from "../auth/session";
 import { getDb } from "../db/client";
 import { imports, memberNames, members, shiftCodes, shifts } from "../db/schema";
-import { ExtractError, ocr } from "../ocr/extract";
 import { markDirtyAndSync } from "../gcal/sync";
+import { parseRunner } from "../ocr/runParse";
 import type { AppEnv } from "../types";
 import { validate } from "../validate";
 import { isNameConstraintError, nameRows } from "./members";
@@ -19,6 +19,8 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export const DAILY_UPLOAD_LIMIT = 20;
 /** 1枚あたりの読み取り回数の上限 */
 export const MAX_PARSE_ATTEMPTS = 3;
+/** これより長く読み取り中のままのものは、止まったとみなして再読み取りできるようにする (秒) */
+export const STALE_PARSE_SECONDS = 10 * 60;
 
 /** D1 は1文に渡せる値が100個まで。メンバー ID の IN 句はこの件数ずつに分ける */
 const ID_CHUNK = 50;
@@ -46,6 +48,7 @@ const summary = {
   targetMonth: imports.targetMonth,
   parseAttempts: imports.parseAttempts,
   error: imports.error,
+  parseStartedAt: imports.parseStartedAt,
   createdAt: imports.createdAt,
 };
 
@@ -101,7 +104,7 @@ export const importRoutes = new Hono<AppEnv>()
     return c.json({ import: row }, 201);
   })
 
-  /* 読み取り (Claude API) */
+  /* 読み取り (Claude API)。Workflow で裏で実行し、画面は GET /:id で状態を確認する */
   .post("/:id/parse", async (c) => {
     const userId = c.get("user")!.id;
     const id = c.req.param("id");
@@ -109,19 +112,32 @@ export const importRoutes = new Hono<AppEnv>()
 
     // 回数の上限を超えていないものだけ、先に回数を増やして確保する (同時実行でも上限を超えない)
     // 読み取りごとにトークンを発行する。結果はトークンが一致する (= 最後に始めた読み取り) ときだけ保存する
+    // 読み取り中のまま長く止まっているもの (Workflow の異常終了など) は、やり直せるようにする
     const token = crypto.randomUUID();
     const claimed = await db
       .update(imports)
-      .set({ parseAttempts: sql`${imports.parseAttempts} + 1`, parseToken: token })
+      .set({
+        status: "parsing",
+        error: null,
+        parseAttempts: sql`${imports.parseAttempts} + 1`,
+        parseToken: token,
+        parseStartedAt: sql`(unixepoch())`,
+      })
       .where(
         and(
           eq(imports.id, id),
           eq(imports.userId, userId),
-          inArray(imports.status, ["uploaded", "failed", "parsed"]),
+          or(
+            inArray(imports.status, ["uploaded", "failed", "parsed"]),
+            and(
+              eq(imports.status, "parsing"),
+              sql`${imports.parseStartedAt} < unixepoch() - ${STALE_PARSE_SECONDS}`,
+            ),
+          ),
           sql`${imports.parseAttempts} < ${MAX_PARSE_ATTEMPTS}`,
         ),
       )
-      .returning({ r2Key: imports.r2Key, contentType: imports.contentType })
+      .returning({ id: imports.id })
       .get();
     if (!claimed) {
       const exists = await db
@@ -133,51 +149,33 @@ export const importRoutes = new Hono<AppEnv>()
       if (exists.status === "committed" || exists.status === "committing") {
         return c.json({ error: "確定済みの取り込みです" }, 409);
       }
+      if (exists.status === "parsing") return c.json({ error: "読み取り中です" }, 409);
       return c.json({ error: `読み取りは1枚につき${MAX_PARSE_ATTEMPTS}回までです` }, 429);
     }
 
-    /** この読み取りが今も有効で、まだ確定していない場合だけ更新する */
-    const stillMine = and(
-      eq(imports.id, id),
-      eq(imports.userId, userId),
-      eq(imports.parseToken, token),
-      inArray(imports.status, ["uploaded", "failed", "parsed"]),
-    );
-
-    const object = await c.env.IMAGES.get(claimed.r2Key);
-    if (!object) return c.json({ error: "画像が見つかりません" }, 404);
-
-    const [memberRows, codeRows] = await Promise.all([
-      db.select({ name: members.name, aliases: members.aliases }).from(members).where(eq(members.userId, userId)),
-      db.select({ symbol: shiftCodes.symbol }).from(shiftCodes).where(eq(shiftCodes.userId, userId)),
-    ]);
-
     try {
-      const result = await ocr.extract(c.env, {
-        image: await object.arrayBuffer(),
-        mediaType: claimed.contentType as "image/jpeg" | "image/png" | "image/webp",
-        knownSymbols: codeRows.map((r) => r.symbol),
-        knownNames: memberRows.flatMap((m) => [m.name, ...m.aliases]),
-      });
-      const row = await db
-        .update(imports)
-        .set({ status: "parsed", rawResult: result, targetMonth: result.yearMonth, error: null })
-        .where(stillMine)
-        .returning(summary)
-        .get();
-      if (!row) {
-        return c.json({ error: "別の画面での読み取りや保存が先に行われたため、この結果は使われませんでした" }, 409);
-      }
-      return c.json({ import: row, result });
+      await parseRunner.start(c.env, { importId: id, token });
     } catch (e) {
-      const message = e instanceof ExtractError ? e.message : "読み取りに失敗しました";
-      if (!(e instanceof ExtractError)) console.error("extract failed", e);
+      console.error("parse start failed", e);
       await db
         .update(imports)
-        .set({ status: "failed", error: message })
-        .where(stillMine);
-      return c.json({ error: message }, 502);
+        .set({ status: "failed", error: "読み取りを開始できませんでした" })
+        .where(and(eq(imports.id, id), eq(imports.parseToken, token), eq(imports.status, "parsing")));
+      return c.json({ error: "読み取りを開始できませんでした" }, 502);
     }
+
+    // 本番ではふつう読み取り中 (202)。すぐ終わった場合 (テストなど) は結果をそのまま返す
+    const row = await db
+      .select({ ...summary, parseToken: imports.parseToken })
+      .from(imports)
+      .where(eq(imports.id, id))
+      .get();
+    if (!row || row.parseToken !== token) {
+      return c.json({ error: "別の画面での読み取りや保存が先に行われたため、この結果は使われませんでした" }, 409);
+    }
+    const { parseToken: _t, ...current } = row;
+    if (current.status === "failed") return c.json({ error: current.error ?? "読み取りに失敗しました", import: current }, 502);
+    return c.json({ import: current }, current.status === "parsing" ? 202 : 200);
   })
 
   .get("/:id", async (c) => {

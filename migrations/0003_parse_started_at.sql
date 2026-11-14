@@ -1,0 +1,1 @@
+ALTER TABLE `imports` ADD `parse_started_at` integer;

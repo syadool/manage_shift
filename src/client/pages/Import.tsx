@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ImageUp } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import { api, ApiError } from "../lib/api";
@@ -8,15 +8,27 @@ import { Button, ErrorText, Hint, LoadError, Section } from "../components/ui";
 
 type ImportSummary = {
   id: string;
-  status: "uploaded" | "parsed" | "committing" | "committed" | "failed";
+  status: "uploaded" | "parsing" | "parsed" | "committing" | "committed" | "failed";
   targetMonth: string | null;
   parseAttempts: number;
   error: string | null;
+  parseStartedAt: string | null;
   createdAt: string;
 };
 
+/** サーバー側の STALE_PARSE_SECONDS と同じ。これより長く読み取り中なら、止まったとみなす */
+const STALE_PARSE_MS = 10 * 60 * 1000;
+const MAX_PARSE_ATTEMPTS = 3;
+const POLL_MS = 3000;
+
+const isStale = (im: ImportSummary) =>
+  im.status === "parsing" && (!im.parseStartedAt || Date.now() - new Date(im.parseStartedAt).getTime() > STALE_PARSE_MS);
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 const STATUS_LABEL: Record<ImportSummary["status"], string> = {
   uploaded: "未読み取り",
+  parsing: "読み取り中",
   parsed: "確認待ち",
   committing: "保存中",
   committed: "確定済み",
@@ -65,19 +77,62 @@ export function Import() {
   const [error, setError] = useState("");
   const history = useResource<{ imports: ImportSummary[] }>("/imports");
 
+  // 画面を離れたら、結果の確認 (ポーリング) をやめる。読み取り自体はサーバーで続く
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  /** 読み取りが終わるまで待つ。通信の一時的な失敗は無視して確認を続ける */
+  const waitForResult = async (id: string): Promise<ImportSummary | null> => {
+    const deadline = Date.now() + STALE_PARSE_MS;
+    while (mounted.current && Date.now() < deadline) {
+      await sleep(POLL_MS);
+      if (!mounted.current) return null;
+      try {
+        const r = await api<{ import: ImportSummary }>(`/imports/${id}`);
+        if (r.import.status !== "parsing") return r.import;
+      } catch {
+        // 次の確認で取り直す
+      }
+    }
+    return null;
+  };
+
   const parse = async (id: string) => {
     setPhase("reading");
     setError("");
     try {
-      await api(`/imports/${id}/parse`, { body: {} });
-      navigate(`/import/${id}`);
+      const started = await api<{ import: ImportSummary }>(`/imports/${id}/parse`, { body: {} });
+      const done = started.import.status === "parsing" ? await waitForResult(id) : started.import;
+      if (!mounted.current) return;
+      if (done?.status === "parsed") {
+        navigate(`/import/${id}`);
+        return;
+      }
+      if (done?.status === "failed") setError(done.error ?? "読み取りに失敗しました");
+      else if (!done) setError("読み取りに時間がかかっています。しばらくしてから履歴を確認してください");
+      history.reload();
     } catch (e) {
+      if (!mounted.current) return;
       setError(e instanceof Error ? e.message : "読み取りに失敗しました");
       history.reload();
     } finally {
-      setPhase("idle");
+      if (mounted.current) setPhase("idle");
     }
   };
+
+  // 読み取り中のものが履歴にあるあいだは、数秒ごとに履歴を更新する (画面を開き直したときなど)
+  const reloadHistory = history.reload;
+  const hasActive = history.data?.imports.some((im) => im.status === "parsing" && !isStale(im)) ?? false;
+  useEffect(() => {
+    if (!hasActive || phase !== "idle") return;
+    const t = setInterval(reloadHistory, POLL_MS);
+    return () => clearInterval(t);
+  }, [hasActive, phase, reloadHistory]);
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
@@ -113,7 +168,7 @@ export function Import() {
           画像を選ぶ
         </Button>
         {phase === "uploading" && <p className="pt-2 text-sm text-ink-500">アップロード中…</p>}
-        {phase === "reading" && <p className="pt-2 text-sm text-ink-500">読み取り中… (1分ほどかかることがあります)</p>}
+        {phase === "reading" && <p className="pt-2 text-sm text-ink-500">読み取り中… (1〜2分かかります。画面を閉じても読み取りは続きます)</p>}
         <ErrorText>{error}</ErrorText>
         <Hint>行が人、列が日付の表を読み取ります。読み取り後に内容を確認・修正してから保存します</Hint>
       </Section>
@@ -135,7 +190,7 @@ export function Import() {
                   確認する
                 </Link>
               )}
-              {(im.status === "failed" || im.status === "uploaded") && im.parseAttempts < 3 && (
+              {(im.status === "failed" || im.status === "uploaded" || isStale(im)) && im.parseAttempts < MAX_PARSE_ATTEMPTS && (
                 <Button variant="ghost" onClick={() => parse(im.id)} disabled={busy}>
                   再読み取り
                 </Button>
