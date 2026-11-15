@@ -3,7 +3,7 @@ import { and, asc, eq, gte, lte } from "drizzle-orm";
 import { shiftInput, shiftRangeQuery, type ShiftInput } from "../../shared/schemas";
 import { requireAuth } from "../auth/session";
 import { getDb } from "../db/client";
-import { members, shiftCodes, shifts } from "../db/schema";
+import { members, shiftCodes, shifts, unknownShifts } from "../db/schema";
 import type { AppEnv } from "../types";
 import { validate } from "../validate";
 
@@ -44,12 +44,37 @@ export const shiftRoutes = new Hono<AppEnv>()
 
   .get("/", validate("query", shiftRangeQuery), async (c) => {
     const { from, to } = c.req.valid("query");
-    const rows = await getDb(c.env)
-      .select(columns)
-      .from(shifts)
-      .where(and(eq(shifts.userId, c.get("user")!.id), gte(shifts.date, from), lte(shifts.date, to)))
-      .orderBy(asc(shifts.date), asc(shifts.startTime));
-    return c.json({ shifts: rows });
+    const userId = c.get("user")!.id;
+    const db = getDb(c.env);
+    const [rows, unknownRows] = await Promise.all([
+      db
+        .select(columns)
+        .from(shifts)
+        .where(and(eq(shifts.userId, userId), gte(shifts.date, from), lte(shifts.date, to)))
+        .orderBy(asc(shifts.date), asc(shifts.startTime)),
+      // 記号表に無い記号で取り込んだ、時間未登録のシフト
+      db
+        .select({
+          id: unknownShifts.id,
+          memberId: unknownShifts.memberId,
+          date: unknownShifts.date,
+          symbol: unknownShifts.symbol,
+        })
+        .from(unknownShifts)
+        .where(and(eq(unknownShifts.userId, userId), gte(unknownShifts.date, from), lte(unknownShifts.date, to)))
+        .orderBy(asc(unknownShifts.date)),
+    ]);
+    return c.json({ shifts: rows, unknownShifts: unknownRows });
+  })
+
+  /* 時間未登録のシフトを消す */
+  .delete("/unknown/:id", async (c) => {
+    const deleted = await getDb(c.env)
+      .delete(unknownShifts)
+      .where(and(eq(unknownShifts.id, c.req.param("id")), eq(unknownShifts.userId, c.get("user")!.id)))
+      .returning({ id: unknownShifts.id });
+    if (deleted.length === 0) return c.json({ error: "not found" }, 404);
+    return c.json({ ok: true });
   })
 
   .post("/", validate("json", shiftInput), async (c) => {
@@ -57,12 +82,24 @@ export const shiftRoutes = new Hono<AppEnv>()
     const input = c.req.valid("json");
     const err = await checkRefs(c, userId, input);
     if (err) return err;
-    const row = await getDb(c.env)
-      .insert(shifts)
-      .values({ id: crypto.randomUUID(), userId, ...input, source: "manual" })
-      .returning(columns)
-      .get();
-    return c.json({ shift: row }, 201);
+    const db = getDb(c.env);
+    // 同じ人・同じ日の時間未登録のシフトは、時間を入れたものとして消す
+    const [inserted] = await db.batch([
+      db
+        .insert(shifts)
+        .values({ id: crypto.randomUUID(), userId, ...input, source: "manual" })
+        .returning(columns),
+      db
+        .delete(unknownShifts)
+        .where(
+          and(
+            eq(unknownShifts.userId, userId),
+            eq(unknownShifts.memberId, input.memberId),
+            eq(unknownShifts.date, input.date),
+          ),
+        ),
+    ]);
+    return c.json({ shift: inserted[0] }, 201);
   })
 
   .put("/:id", validate("json", shiftInput), async (c) => {

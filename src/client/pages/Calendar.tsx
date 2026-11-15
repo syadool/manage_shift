@@ -4,7 +4,15 @@ import { workedMinutes } from "../../shared/calc";
 import { addMonths, calendarCells, isValidDate, monthRange, today, WEEKDAYS, weekday } from "../../shared/dates";
 import { ICON_PROPS } from "../components/Layout";
 import { Button, ErrorText, Hint } from "../components/ui";
-import { coworkersOn, formatMinutes, shortTime, useShiftData, type Member } from "../lib/shiftData";
+import {
+  coworkersOn,
+  formatMinutes,
+  shortTime,
+  unknownShiftTitle,
+  useShiftData,
+  type Member,
+  type UnknownShift,
+} from "../lib/shiftData";
 
 const monthLabel = (m: string) => `${Number(m.slice(0, 4))}年${Number(m.slice(5, 7))}月`;
 export const dayLabel = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}（${WEEKDAYS[weekday(d)]}）`;
@@ -16,14 +24,19 @@ export function Calendar() {
   const m = params.get("m") ?? "";
   const month = /^\d{4}-\d{2}$/.test(m) && isValidDate(`${m}-01`) ? m : now.slice(0, 7);
   const { from, to } = monthRange(month);
-  const { loaded, error, me, memberById, byDate } = useShiftData(from, to);
+  const { loaded, error, me, memberById, byDate, unknownByDate } = useShiftData(from, to);
   const go = (n: number) => setParams({ m: addMonths(month, n) });
 
   const cells = calendarCells(month);
-  const myDays = cells
+  // 自分の時間未登録のシフト (記号表に無い記号で取り込んだもの)
+  const myUnknown = (d: string) => (me ? (unknownByDate.get(d) ?? []).filter((u) => u.memberId === me.id) : []);
+  const listDays = cells
     .filter((d): d is string => !!d)
-    .map((d) => ({ date: d, ...coworkersOn(byDate.get(d) ?? [], me?.id ?? null) }))
-    .filter((d) => d.mine.length > 0);
+    .map((d) => ({ date: d, ...coworkersOn(byDate.get(d) ?? [], me?.id ?? null), unknown: myUnknown(d) }))
+    .filter((d) => d.mine.length > 0 || d.unknown.length > 0);
+  // 出勤日数・実働は時間がわかるシフトだけで数える
+  const myDays = listDays.filter((d) => d.mine.length > 0);
+  const unknownDays = listDays.filter((d) => d.mine.length === 0).length;
   const totalMinutes = myDays.reduce((sum, d) => sum + d.mine.reduce((s, m) => s + workedMinutes(m), 0), 0);
   const name = (id: string) => memberById.get(id)?.name ?? "";
 
@@ -65,6 +78,7 @@ export function Calendar() {
               date={d}
               isToday={d === now}
               {...coworkersOn(byDate.get(d) ?? [], me?.id ?? null)}
+              unknown={myUnknown(d)}
               memberName={name}
             />
           ) : (
@@ -82,15 +96,26 @@ export function Calendar() {
           <span className="text-ink-500">実働 </span>
           {formatMinutes(totalMinutes)}
         </span>
+        {unknownDays > 0 && (
+          <span className="text-ink-500" title="記号表に無い記号の日は、出勤・実働に含めていません">
+            時間未登録 {unknownDays}日
+          </span>
+        )}
       </div>
 
       <ul className="border-t border-ink-100">
-        {myDays.map((d) => (
+        {listDays.map((d) => (
           <li key={d.date} className="border-b border-ink-100">
             <Link to={`/day/${d.date}`} className="grid grid-cols-[80px_1fr] gap-2 py-1 sm:grid-cols-[80px_120px_1fr]">
               <span className="text-sm">{dayLabel(d.date)}</span>
               <span className="text-sm">
                 {d.mine.map((m) => `${shortTime(m.startTime)}–${shortTime(m.endTime)}`).join(", ")}
+                {d.unknown.map((u) => (
+                  <span key={u.id} title={unknownShiftTitle(u.symbol)} className="text-ink-500">
+                    {d.mine.length > 0 ? ", " : ""}
+                    {u.symbol}（時間未登録）
+                  </span>
+                ))}
               </span>
               <span className="col-start-2 text-sm text-ink-500 sm:col-start-auto">
                 {d.coworkers.map((c) => name(c.memberId)).join("、") || "—"}
@@ -107,12 +132,14 @@ function DayCell({
   date,
   isToday,
   mine,
+  unknown,
   coworkers,
   memberName,
 }: {
   date: string;
   isToday: boolean;
   mine: { startTime: string; endTime: string }[];
+  unknown: UnknownShift[];
   coworkers: { memberId: string }[];
   memberName: (id: string) => Member["name"];
 }) {
@@ -126,6 +153,16 @@ function DayCell({
         <span key={i} className="mt-1 block rounded-sm bg-ink-900 text-center text-xs leading-3 text-white md:px-1 md:text-left">
           {shortTime(m.startTime)}
           <span className="hidden md:inline">–{shortTime(m.endTime)}</span>
+        </span>
+      ))}
+      {unknown.map((u) => (
+        <span
+          key={u.id}
+          title={unknownShiftTitle(u.symbol)}
+          className="mt-1 block truncate rounded-sm bg-ink-100 text-center text-xs leading-3 text-ink-500 md:px-1 md:text-left"
+        >
+          {u.symbol}
+          <span className="sr-only">（時間未登録）</span>
         </span>
       ))}
       {coworkers.length > 0 && (

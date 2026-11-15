@@ -145,6 +145,29 @@ export const shifts = sqliteTable(
   ],
 );
 
+/**
+ * 画像から読み取ったが、記号表に無い記号だったシフト。時間が決まらないので shifts とは別に持つ
+ * (給与・勤務時間の計算には含めない)。あとで記号表に追加されたら shifts に移す
+ */
+export const unknownShifts = sqliteTable(
+  "unknown_shifts",
+  {
+    id: id(),
+    userId: userRef(),
+    memberId: text("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
+    /** "YYYY-MM-DD" */
+    date: text("date").notNull(),
+    /** 読み取った記号 (そのまま) */
+    symbol: text("symbol").notNull(),
+  },
+  (t) => [
+    index("unknown_shifts_user_date_idx").on(t.userId, t.date),
+    index("unknown_shifts_member_date_idx").on(t.memberId, t.date),
+  ],
+);
+
 export const imports = sqliteTable(
   "imports",
   {

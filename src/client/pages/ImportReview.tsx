@@ -216,7 +216,7 @@ export function ImportReview() {
     if (ok) navigate(`/?m=${yearMonth}`);
   };
 
-  const ready = /^\d{4}-\d{2}$/.test(yearMonth) && unknownSymbols.length === 0;
+  const ready = /^\d{4}-\d{2}$/.test(yearMonth);
 
   return (
     <div>
@@ -310,9 +310,10 @@ export function ImportReview() {
                               maxLength={8}
                               disabled={skipped}
                               onChange={(e) => setCell(i, d, e.target.value)}
+                              title={unknown ? `記号表に無い記号です。時間未登録のシフトとして保存されます` : undefined}
                               className={`mt-1 h-4 w-5 rounded-sm text-center text-sm outline-none focus:ring-1 focus:ring-ink-900 ${
                                 unknown
-                                  ? "bg-ink-900 text-white"
+                                  ? "bg-ink-100 text-ink-500"
                                   : code?.isOff
                                     ? "bg-white text-ink-300"
                                     : "bg-white text-ink-900"
@@ -335,7 +336,9 @@ export function ImportReview() {
                   <AddCodeInline key={s} symbol={s} onAdded={codesRes.reload} />
                 ))}
               </div>
-              <Hint>記号表に追加するか、表のセルを書き直してください</Hint>
+              <Hint>
+                記号表に追加すると時間が入ります。追加しなくても、時間未登録のシフト（薄いグレー）として保存でき、あとで記号表に追加すると時間が入ります
+              </Hint>
             </Section>
           )}
 
