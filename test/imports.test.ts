@@ -356,9 +356,91 @@ describe("確定", () => {
     expect(members.find((m: any) => m.name === "新人 次郎")).toBeTruthy();
     // 「山田太郎」は「山田 太郎」と同じ名前なので別名には足さない
     expect(members.find((m: any) => m.id === me.id).aliases).toEqual([]);
-    // 確定後は再確定・再読み取りできない
-    expect((await call(cookie, "POST", `/imports/${id}/commit`, commitBody(me, sato))).status).toBe(409);
+    // 確定後は再読み取りできない (確定し直すことはできる)
     expect((await call(cookie, "POST", `/imports/${id}/parse`, {})).status).toBe(409);
+  });
+
+  it("確定済みの取り込みは、割り当てを直して保存し直せる (間違えた人のシフトは消える)", async () => {
+    const { cookie, me, sato } = await setup();
+    const { id } = await parsed(cookie);
+    // 自分の行を佐藤さんに割り当て、佐藤さんの行は取り込まない、という間違い
+    await call(cookie, "POST", `/imports/${id}/commit`, {
+      yearMonth: "2026-12",
+      rows: [{ readName: "山田太郎", target: { type: "member", memberId: sato.id, rememberAlias: false }, cells: EXTRACTION.rows[0].cells }],
+    });
+    const got = (await call(cookie, "GET", `/imports/${id}`)).data;
+    expect(got.import.status).toBe("committed");
+    expect(got.committed).toEqual([{ readName: "山田太郎", memberId: sato.id, cells: EXTRACTION.rows[0].cells }]);
+
+    const r = await call(cookie, "POST", `/imports/${id}/commit`, commitBody(me, sato));
+    expect(r.status).toBe(200);
+    const list = (await call(cookie, "GET", "/shifts?from=2026-12-01&to=2026-12-31")).data.shifts;
+    const by = (memberId: string) => list.filter((s: any) => s.memberId === memberId).map((s: any) => s.date);
+    expect(by(me.id)).toEqual(["2026-12-01", "2026-12-03"]);
+    expect(by(sato.id)).toEqual(["2026-12-01"]); // 間違えて入った 12/3 は消える
+    expect((await call(cookie, "GET", `/imports/${id}`)).data.committed.map((c: any) => c.readName)).toEqual([
+      "山田太郎",
+      "ｻﾄｳ",
+      "新人 次郎",
+    ]);
+  });
+
+  it("年月を直して保存し直すと、前の月に保存したシフトは消える", async () => {
+    const { cookie, me, sato } = await setup();
+    const { id } = await parsed(cookie);
+    const body = { ...commitBody(me, sato), rows: commitBody(me, sato).rows.slice(0, 2) };
+    expect((await call(cookie, "POST", `/imports/${id}/commit`, { ...body, yearMonth: "2026-11" })).status).toBe(200);
+    expect((await call(cookie, "POST", `/imports/${id}/commit`, body)).status).toBe(200);
+    expect((await call(cookie, "GET", "/shifts?from=2026-11-01&to=2026-11-30")).data.shifts).toEqual([]);
+    expect((await call(cookie, "GET", "/shifts?from=2026-12-01&to=2026-12-31")).data.shifts).toHaveLength(3);
+    expect((await call(cookie, "GET", `/imports/${id}`)).data.import.targetMonth).toBe("2026-12");
+  });
+
+  it("保存先を記録する前に確定したものは、その月を取り込んだのが1枚だけなら月の画像由来のシフトをすべて置き換える", async () => {
+    const { cookie, me, sato } = await setup();
+    const manual = await call(cookie, "POST", "/shifts", {
+      memberId: sato.id, date: "2026-12-10", shiftCodeId: null, startTime: "10:00", endTime: "12:00", breakMinutes: 0,
+    });
+    expect(manual.status).toBe(201);
+    const { id } = await parsed(cookie);
+    await call(cookie, "POST", `/imports/${id}/commit`, {
+      yearMonth: "2026-12",
+      rows: [{ readName: "山田太郎", target: { type: "member", memberId: sato.id, rememberAlias: false }, cells: EXTRACTION.rows[0].cells }],
+    });
+    await env.DB.prepare("update imports set committed_rows = null where id = ?").bind(id).run();
+
+    const r = await call(cookie, "POST", `/imports/${id}/commit`, {
+      yearMonth: "2026-12",
+      rows: [{ readName: "山田太郎", target: { type: "member", memberId: me.id, rememberAlias: false }, cells: EXTRACTION.rows[0].cells }],
+    });
+    expect(r.status).toBe(200);
+    const list = (await call(cookie, "GET", "/shifts?from=2026-12-01&to=2026-12-31")).data.shifts;
+    expect(list.filter((s: any) => s.memberId === me.id)).toHaveLength(2);
+    // 佐藤さんの画像由来のシフトは消え、手入力は残る
+    expect(list.filter((s: any) => s.memberId === sato.id).map((s: any) => s.source)).toEqual(["manual"]);
+  });
+
+  it("保存先を記録する前に確定したもので、同じ月の取り込みが他にもあれば、今回の保存先だけ置き換える", async () => {
+    const { cookie, me, sato } = await setup();
+    const first = await parsed(cookie);
+    await call(cookie, "POST", `/imports/${first.id}/commit`, {
+      yearMonth: "2026-12",
+      rows: [{ readName: "ｻﾄｳ", target: { type: "member", memberId: sato.id, rememberAlias: false }, cells: EXTRACTION.rows[1].cells }],
+    });
+    const second = await parsed(cookie);
+    await call(cookie, "POST", `/imports/${second.id}/commit`, {
+      yearMonth: "2026-12",
+      rows: [{ readName: "山田太郎", target: { type: "member", memberId: me.id, rememberAlias: false }, cells: EXTRACTION.rows[0].cells }],
+    });
+    await env.DB.prepare("update imports set committed_rows = null").run();
+
+    expect((await call(cookie, "POST", `/imports/${second.id}/commit`, {
+      yearMonth: "2026-12",
+      rows: [{ readName: "山田太郎", target: { type: "member", memberId: me.id, rememberAlias: false }, cells: [{ day: 5, symbol: "A" }] }],
+    })).status).toBe(200);
+    const list = (await call(cookie, "GET", "/shifts?from=2026-12-01&to=2026-12-31")).data.shifts;
+    expect(list.filter((s: any) => s.memberId === me.id).map((s: any) => s.date)).toEqual(["2026-12-05"]);
+    expect(list.filter((s: any) => s.memberId === sato.id)).toHaveLength(1); // 別の取り込みの分は残る
   });
 
   it("同じ月を取り込み直すと画像由来のシフトだけ置き換え、手入力のシフトは残す", async () => {

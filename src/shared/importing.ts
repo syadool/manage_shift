@@ -134,3 +134,6 @@ export const commitInput = z.object({
     .max(100, "行が多すぎます"),
 });
 export type CommitInput = z.infer<typeof commitInput>;
+
+/** 確定した行: 読み取った名前、保存先のメンバー、保存した記号 (確定済みの取り込みを開き直すときに使う) */
+export type CommittedRow = { readName: string; memberId: string; cells: { day: number; symbol: string }[] };

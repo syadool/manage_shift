@@ -36,6 +36,13 @@
       "when": 1794639960308,
       "tag": "0004_unknown_shifts",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794745879409,
+      "tag": "0005_committed_rows",
+      "breakpoints": true
     }
   ]
 }

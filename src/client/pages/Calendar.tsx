@@ -11,6 +11,7 @@ import {
   unknownShiftTitle,
   useShiftData,
   type Member,
+  type Shift,
   type UnknownShift,
 } from "../lib/shiftData";
 
@@ -24,7 +25,10 @@ export function Calendar() {
   const m = params.get("m") ?? "";
   const month = /^\d{4}-\d{2}$/.test(m) && isValidDate(`${m}-01`) ? m : now.slice(0, 7);
   const { from, to } = monthRange(month);
-  const { loaded, error, me, memberById, byDate, unknownByDate } = useShiftData(from, to);
+  const { loaded, error, me, memberById, codes, byDate, unknownByDate } = useShiftData(from, to);
+  const codeById = new Map(codes.map((c) => [c.id, c]));
+  // シフトの記号 (手入力で記号なしのシフトは空)
+  const symbolOf = (s: Shift) => (s.shiftCodeId ? (codeById.get(s.shiftCodeId)?.symbol ?? "") : "");
   const go = (n: number) => setParams({ m: addMonths(month, n) });
 
   const cells = calendarCells(month);
@@ -80,6 +84,7 @@ export function Calendar() {
               {...coworkersOn(byDate.get(d) ?? [], me?.id ?? null)}
               unknown={myUnknown(d)}
               memberName={name}
+              symbolOf={symbolOf}
             />
           ) : (
             <div key={`e${i}`} className="border-t border-ink-100" />
@@ -109,7 +114,13 @@ export function Calendar() {
             <Link to={`/day/${d.date}`} className="grid grid-cols-[80px_1fr] gap-2 py-1 sm:grid-cols-[80px_120px_1fr]">
               <span className="text-sm">{dayLabel(d.date)}</span>
               <span className="text-sm">
-                {d.mine.map((m) => `${shortTime(m.startTime)}–${shortTime(m.endTime)}`).join(", ")}
+                {d.mine
+                  .map((m) => {
+                    const time = `${shortTime(m.startTime)}–${shortTime(m.endTime)}`;
+                    const symbol = symbolOf(m);
+                    return symbol ? `${symbol} ${time}` : time;
+                  })
+                  .join(", ")}
                 {d.unknown.map((u) => (
                   <span key={u.id} title={unknownShiftTitle(u.symbol)} className="text-ink-500">
                     {d.mine.length > 0 ? ", " : ""}
@@ -135,13 +146,15 @@ function DayCell({
   unknown,
   coworkers,
   memberName,
+  symbolOf,
 }: {
   date: string;
   isToday: boolean;
-  mine: { startTime: string; endTime: string }[];
+  mine: Shift[];
   unknown: UnknownShift[];
   coworkers: { memberId: string }[];
   memberName: (id: string) => Member["name"];
+  symbolOf: (s: Shift) => string;
 }) {
   const day = Number(date.slice(8, 10));
   return (
@@ -149,12 +162,23 @@ function DayCell({
       <span className={`text-xs ${isToday ? "font-bold text-ink-900 underline underline-offset-4" : "text-ink-500"}`}>
         {day}
       </span>
-      {mine.map((m, i) => (
-        <span key={i} className="mt-1 block rounded-sm bg-ink-900 text-center text-xs leading-3 text-white md:px-1 md:text-left">
-          {shortTime(m.startTime)}
-          <span className="hidden md:inline">–{shortTime(m.endTime)}</span>
-        </span>
-      ))}
+      {mine.map((m) => {
+        const symbol = symbolOf(m);
+        return (
+          <span
+            key={m.id}
+            className="mt-1 block rounded-sm bg-ink-900 py-0.5 text-center text-xs leading-tight text-white md:px-1 md:text-left"
+          >
+            {symbol && <span className="block truncate font-bold">{symbol}</span>}
+            {/* スマホ幅ではマスが狭いので、開始と終了を2行に分けて表示する */}
+            <span className="block whitespace-nowrap md:inline">{shortTime(m.startTime)}</span>
+            <span className="block whitespace-nowrap md:inline">
+              <span className="hidden md:inline">–</span>
+              {shortTime(m.endTime)}
+            </span>
+          </span>
+        );
+      })}
       {unknown.map((u) => (
         <span
           key={u.id}

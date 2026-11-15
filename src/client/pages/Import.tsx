@@ -190,6 +190,11 @@ export function Import() {
                   確認する
                 </Link>
               )}
+              {im.status === "committed" && (
+                <Link to={`/import/${im.id}`} className="text-sm text-ink-500 underline underline-offset-4">
+                  修正する
+                </Link>
+              )}
               {(im.status === "failed" || im.status === "uploaded" || isStale(im)) && im.parseAttempts < MAX_PARSE_ATTEMPTS && (
                 <Button variant="ghost" onClick={() => parse(im.id)} disabled={busy}>
                   再読み取り
