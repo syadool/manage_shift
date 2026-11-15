@@ -1,0 +1,1 @@
+ALTER TABLE `imports` ADD `committed_rows` text;

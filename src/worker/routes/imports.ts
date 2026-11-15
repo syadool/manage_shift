@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { and, desc, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
 import { isValidDate, monthRange } from "../../shared/dates";
-import { commitInput, matchCode, normalizeSymbol, type Extraction } from "../../shared/importing";
+import { commitInput, matchCode, normalizeSymbol, type CommittedRow, type Extraction } from "../../shared/importing";
 import { normalizeName } from "../../shared/names";
 import { MAX_ALIASES } from "../../shared/schemas";
 import { requireAuth } from "../auth/session";
@@ -179,13 +179,18 @@ export const importRoutes = new Hono<AppEnv>()
 
   .get("/:id", async (c) => {
     const row = await getDb(c.env)
-      .select({ ...summary, rawResult: imports.rawResult })
+      .select({ ...summary, rawResult: imports.rawResult, committedRows: imports.committedRows })
       .from(imports)
       .where(and(eq(imports.id, c.req.param("id")), eq(imports.userId, c.get("user")!.id)))
       .get();
     if (!row) return c.json({ error: "not found" }, 404);
-    const { rawResult, ...rest } = row;
-    return c.json({ import: rest, result: (rawResult as Extraction | null) ?? null });
+    const { rawResult, committedRows, ...rest } = row;
+    return c.json({
+      import: rest,
+      result: (rawResult as Extraction | null) ?? null,
+      // 確定済みなら、そのときの保存先と記号 (開き直して直すときの初期値)。以前の確定では記録していないので null
+      committed: committedRows ?? null,
+    });
   })
 
   .get("/:id/image", async (c) => {
@@ -206,7 +211,10 @@ export const importRoutes = new Hono<AppEnv>()
     });
   })
 
-  /* 確定: 確認・修正後の内容でシフトを置き換える */
+  /*
+   * 確定: 確認・修正後の内容でシフトを置き換える。
+   * 確定済みの取り込みも、名前の割り当てや記号を直してもう一度確定できる (前回この取り込みで保存したシフトを置き換える)
+   */
   .post("/:id/commit", validate("json", commitInput), async (c) => {
     const userId = c.get("user")!.id;
     const id = c.req.param("id");
@@ -214,12 +222,26 @@ export const importRoutes = new Hono<AppEnv>()
     const db = getDb(c.env);
 
     const imp = await db
-      .select({ status: imports.status })
+      .select({ status: imports.status, targetMonth: imports.targetMonth, committedRows: imports.committedRows })
       .from(imports)
       .where(and(eq(imports.id, id), eq(imports.userId, userId)))
       .get();
     if (!imp) return c.json({ error: "not found" }, 404);
-    if (imp.status !== "parsed") return c.json({ error: "読み取りが完了していません" }, 409);
+    if (imp.status === "committing") return c.json({ error: "この取り込みは別の画面で保存中です" }, 409);
+    if (imp.status !== "parsed" && imp.status !== "committed") return c.json({ error: "読み取りが完了していません" }, 409);
+    const prevStatus = imp.status;
+    /** 前回の確定で保存した先のメンバー */
+    const previousTargets = async (month: string): Promise<string[]> => {
+      if (imp.committedRows) return imp.committedRows.map((r) => r.memberId);
+      // 保存先を記録する前に確定したもの: 同じ月を取り込んだのがこの1枚だけなら、その月の画像由来のシフトはすべてこの取り込みのもの
+      const others = await db
+        .select({ id: imports.id })
+        .from(imports)
+        .where(and(eq(imports.userId, userId), eq(imports.targetMonth, month), eq(imports.status, "committed")))
+        .all();
+      if (others.some((o) => o.id !== id)) return [];
+      return memberRows.map((m) => m.id);
+    };
 
     const [memberRows, codeRows] = await Promise.all([
       db.select().from(members).where(eq(members.userId, userId)),
@@ -286,6 +308,7 @@ export const importRoutes = new Hono<AppEnv>()
     const shiftValues: (typeof shifts.$inferInsert)[] = [];
     const unknownValues: (typeof unknownShifts.$inferInsert)[] = [];
     const targetIds: string[] = [];
+    const committedRows: CommittedRow[] = [];
 
     for (const r of rows) {
       let memberId: string;
@@ -343,6 +366,7 @@ export const importRoutes = new Hono<AppEnv>()
         continue;
       }
       targetIds.push(memberId);
+      committedRows.push({ readName: r.readName, memberId, cells: r.cells });
 
       for (const cell of r.cells) {
         if (normalizeSymbol(cell.symbol) === "") continue;
@@ -376,33 +400,41 @@ export const importRoutes = new Hono<AppEnv>()
 
     // 3. その月の対象メンバーの「画像から取り込んだシフト」だけを置き換える (手入力は残す)
     // メンバー数が多くても D1 の1文あたりの値の上限 (100) を超えないよう分ける。すべて同じ batch に入れる
-    for (const ids of chunks(targetIds, ID_CHUNK)) {
-      statements.push(
-        db
-          .delete(shifts)
-          .where(
-            and(
-              eq(shifts.userId, userId),
-              inArray(shifts.memberId, ids),
-              eq(shifts.source, "ocr"),
-              gte(shifts.date, from),
-              lte(shifts.date, to),
+    const deleteOcr = (range: { from: string; to: string }, memberIds: string[]) => {
+      for (const ids of chunks([...new Set(memberIds)], ID_CHUNK)) {
+        statements.push(
+          db
+            .delete(shifts)
+            .where(
+              and(
+                eq(shifts.userId, userId),
+                inArray(shifts.memberId, ids),
+                eq(shifts.source, "ocr"),
+                gte(shifts.date, range.from),
+                lte(shifts.date, range.to),
+              ),
             ),
-          ),
-      );
-      statements.push(
-        db
-          .delete(unknownShifts)
-          .where(
-            and(
-              eq(unknownShifts.userId, userId),
-              inArray(unknownShifts.memberId, ids),
-              gte(unknownShifts.date, from),
-              lte(unknownShifts.date, to),
+        );
+        statements.push(
+          db
+            .delete(unknownShifts)
+            .where(
+              and(
+                eq(unknownShifts.userId, userId),
+                inArray(unknownShifts.memberId, ids),
+                gte(unknownShifts.date, range.from),
+                lte(unknownShifts.date, range.to),
+              ),
             ),
-          ),
-      );
-    }
+        );
+      }
+    };
+    // 確定し直すときは、前回この取り込みで保存した先のシフトも消す
+    // (例: 別の人に割り当ててしまった行を直したとき、間違えた人に残ったシフトを消す)
+    const prevMonth = prevStatus === "committed" ? imp.targetMonth : null;
+    const prevIds = prevMonth ? await previousTargets(prevMonth) : [];
+    if (prevMonth && prevMonth !== input.yearMonth) deleteOcr(monthRange(prevMonth), prevIds);
+    deleteOcr({ from, to }, prevMonth === input.yearMonth ? [...targetIds, ...prevIds] : targetIds);
     // D1 の1文あたりの変数上限を超えないよう、シフトは分けて挿入する
     for (let i = 0; i < shiftValues.length; i += 10) {
       statements.push(db.insert(shifts).values(shiftValues.slice(i, i + 10)));
@@ -413,7 +445,7 @@ export const importRoutes = new Hono<AppEnv>()
     statements.push(
       db
         .update(imports)
-        .set({ status: "committed", targetMonth: input.yearMonth })
+        .set({ status: "committed", targetMonth: input.yearMonth, committedRows })
         .where(and(eq(imports.id, id), eq(imports.userId, userId), eq(imports.status, "committing"))),
     );
 
@@ -422,7 +454,7 @@ export const importRoutes = new Hono<AppEnv>()
     const claimedCommit = await db
       .update(imports)
       .set({ status: "committing" })
-      .where(and(eq(imports.id, id), eq(imports.userId, userId), eq(imports.status, "parsed")))
+      .where(and(eq(imports.id, id), eq(imports.userId, userId), eq(imports.status, prevStatus)))
       .returning({ id: imports.id })
       .get();
     if (!claimedCommit) {
@@ -433,10 +465,10 @@ export const importRoutes = new Hono<AppEnv>()
       // すべて1つのトランザクションで行う
       await db.batch(statements as [(typeof statements)[number], ...typeof statements]);
     } catch (e) {
-      // 失敗したら確認待ちに戻す (やり直せるように)
+      // 失敗したら元の状態に戻す (やり直せるように)
       await db
         .update(imports)
-        .set({ status: "parsed" })
+        .set({ status: prevStatus })
         .where(and(eq(imports.id, id), eq(imports.status, "committing")));
       if (isNameConstraintError(e)) {
         return c.json({ error: "既存のメンバーと同じ名前・別名が含まれています" }, 409);

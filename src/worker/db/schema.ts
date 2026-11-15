@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import type { CommittedRow } from "../../shared/importing";
 
 const id = () => text("id").primaryKey();
 const createdAt = () =>
@@ -191,6 +192,11 @@ export const imports = sqliteTable(
     parseToken: text("parse_token"),
     /** 最後に読み取りを始めた時刻。読み取り中のまま止まったものを見分けるのに使う */
     parseStartedAt: integer("parse_started_at", { mode: "timestamp" }),
+    /**
+     * 確定したときの行ごとの保存先と記号 (取り込まなかった行は含まない)。
+     * 確定後に開き直して直せるようにするのと、直したときに前回の保存先のシフトを消すのに使う
+     */
+    committedRows: text("committed_rows", { mode: "json" }).$type<CommittedRow[]>(),
     createdAt: createdAt(),
   },
   (t) => [index("imports_user_created_idx").on(t.userId, t.createdAt)],
