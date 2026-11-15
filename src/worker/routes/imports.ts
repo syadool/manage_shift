@@ -6,7 +6,7 @@ import { normalizeName } from "../../shared/names";
 import { MAX_ALIASES } from "../../shared/schemas";
 import { requireAuth } from "../auth/session";
 import { getDb } from "../db/client";
-import { imports, memberNames, members, shiftCodes, shifts } from "../db/schema";
+import { imports, memberNames, members, shiftCodes, shifts, unknownShifts } from "../db/schema";
 import { parseRunner } from "../ocr/runParse";
 import type { AppEnv } from "../types";
 import { validate } from "../validate";
@@ -227,11 +227,11 @@ export const importRoutes = new Hono<AppEnv>()
     ]);
     const memberById = new Map(memberRows.map((m) => [m.id, m]));
 
-    // 1. 行の検証: 紐付け先が本人のメンバーか、同じメンバーへの重複がないか、記号がすべて既知か
+    // 1. 行の検証: 紐付け先が本人のメンバーか、同じメンバーへの重複がないか
+    // (記号表に無い記号は拒否せず、時間未登録のシフトとして保存する)
     const rows = input.rows.filter((r) => r.target.type !== "skip");
     const usedMembers = new Set<string>();
     const newNames = new Set<string>();
-    const unknown = new Set<string>();
     for (const r of rows) {
       if (r.target.type === "member") {
         if (!memberById.has(r.target.memberId)) return c.json({ error: "メンバーが見つかりません" }, 400);
@@ -243,9 +243,6 @@ export const importRoutes = new Hono<AppEnv>()
         const key = normalizeName(r.target.name);
         if (newNames.has(key)) return c.json({ error: `「${r.target.name}」が複数あります` }, 400);
         newNames.add(key);
-      }
-      for (const cell of r.cells) {
-        if (normalizeSymbol(cell.symbol) !== "" && !matchCode(cell.symbol, codeRows)) unknown.add(cell.symbol);
       }
     }
     // 開始と終了が同じ勤務記号 (以前に登録されたもの) は、24時間勤務として計算されてしまうので保存しない
@@ -261,9 +258,6 @@ export const importRoutes = new Hono<AppEnv>()
         { error: `開始と終了が同じ時刻の記号があります: ${[...invalid].join("、")}。記号表で時刻を直してください` },
         400,
       );
-    }
-    if (unknown.size > 0) {
-      return c.json({ error: `記号表に無い記号があります: ${[...unknown].join("、")}`, unknownSymbols: [...unknown] }, 400);
     }
 
     // 2. 書き込み内容を組み立てる
@@ -290,6 +284,7 @@ export const importRoutes = new Hono<AppEnv>()
     let aliasesSkipped = 0;
     const statements = [];
     const shiftValues: (typeof shifts.$inferInsert)[] = [];
+    const unknownValues: (typeof unknownShifts.$inferInsert)[] = [];
     const targetIds: string[] = [];
 
     for (const r of rows) {
@@ -350,12 +345,19 @@ export const importRoutes = new Hono<AppEnv>()
       targetIds.push(memberId);
 
       for (const cell of r.cells) {
-        const code = matchCode(cell.symbol, codeRows);
-        if (!code || code.isOff || !code.startTime || !code.endTime) continue;
+        if (normalizeSymbol(cell.symbol) === "") continue;
+        const matched = matchCode(cell.symbol, codeRows);
+        if (matched && (matched.isOff || !matched.startTime || !matched.endTime)) continue;
+        const code = matched && { ...matched, startTime: matched.startTime!, endTime: matched.endTime! };
         const date = `${input.yearMonth}-${String(cell.day).padStart(2, "0")}`;
         if (!isValidDate(date)) continue; // 31日が無い月など
         if (manualDays.has(`${memberId}|${date}`)) {
           skippedManual++;
+          continue;
+        }
+        if (!code) {
+          // 記号表に無い記号: 時間が決まらないので、記号だけ覚えておく (記号表に追加されたらシフトに移す)
+          unknownValues.push({ id: crypto.randomUUID(), userId, memberId, date, symbol: cell.symbol.trim() });
           continue;
         }
         shiftValues.push({
@@ -388,10 +390,25 @@ export const importRoutes = new Hono<AppEnv>()
             ),
           ),
       );
+      statements.push(
+        db
+          .delete(unknownShifts)
+          .where(
+            and(
+              eq(unknownShifts.userId, userId),
+              inArray(unknownShifts.memberId, ids),
+              gte(unknownShifts.date, from),
+              lte(unknownShifts.date, to),
+            ),
+          ),
+      );
     }
     // D1 の1文あたりの変数上限を超えないよう、シフトは分けて挿入する
     for (let i = 0; i < shiftValues.length; i += 10) {
       statements.push(db.insert(shifts).values(shiftValues.slice(i, i + 10)));
+    }
+    for (let i = 0; i < unknownValues.length; i += 10) {
+      statements.push(db.insert(unknownShifts).values(unknownValues.slice(i, i + 10)));
     }
     statements.push(
       db
@@ -430,6 +447,7 @@ export const importRoutes = new Hono<AppEnv>()
       ok: true,
       yearMonth: input.yearMonth,
       created: shiftValues.length,
+      unknown: unknownValues.length,
       members: targetIds.length,
       skippedManual,
       aliasesSkipped,

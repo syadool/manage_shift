@@ -6,12 +6,15 @@ import { api } from "./api";
 export type Member = { id: string; name: string; aliases: string[]; isMe: boolean };
 export type ShiftCode = ShiftCodeInput & { id: string };
 export type Shift = ShiftInput & { id: string; source: "ocr" | "manual" };
+/** 記号表に無い記号で取り込んだ、時間未登録のシフト */
+export type UnknownShift = { id: string; memberId: string; date: string; symbol: string };
 
 /** 期間内のシフトと、メンバー・記号をまとめて取得する */
 export function useShiftData(from: string, to: string) {
   const [members, setMembers] = useState<Member[]>();
   const [codes, setCodes] = useState<ShiftCode[]>();
   const [shifts, setShifts] = useState<Shift[]>();
+  const [unknownShifts, setUnknownShifts] = useState<UnknownShift[]>([]);
   // メンバー・記号の取得エラーと、シフトの取得エラーは別々に持つ
   // (シフトの再取得が成功しても、メンバー側のエラーを消さないため)
   const [refError, setRefError] = useState("");
@@ -23,10 +26,11 @@ export function useShiftData(from: string, to: string) {
   const generation = useRef(0);
   const reloadShifts = useCallback(() => {
     const gen = ++generation.current;
-    api<{ shifts: Shift[] }>(`/shifts?from=${from}&to=${to}`)
+    api<{ shifts: Shift[]; unknownShifts?: UnknownShift[] }>(`/shifts?from=${from}&to=${to}`)
       .then((r) => {
         if (gen !== generation.current) return;
         setShifts(r.shifts);
+        setUnknownShifts(r.unknownShifts ?? []);
         setShiftError("");
       })
       .catch((e: Error) => {
@@ -52,9 +56,14 @@ export function useShiftData(from: string, to: string) {
     for (const s of shifts ?? []) map.set(s.date, [...(map.get(s.date) ?? []), s]);
     return map;
   }, [shifts]);
+  const unknownByDate = useMemo(() => {
+    const map = new Map<string, UnknownShift[]>();
+    for (const s of unknownShifts) map.set(s.date, [...(map.get(s.date) ?? []), s]);
+    return map;
+  }, [unknownShifts]);
 
   const loaded = members !== undefined && codes !== undefined && shifts !== undefined;
-  return { loaded, error, members: members ?? [], codes: codes ?? [], shifts: shifts ?? [], me, memberById, byDate, reloadShifts };
+  return { loaded, error, members: members ?? [], codes: codes ?? [], shifts: shifts ?? [], unknownShifts, me, memberById, byDate, unknownByDate, reloadShifts };
 }
 
 /** その日の自分のシフトと、時間が重なる他メンバー (重なり分の多い順) */
@@ -71,6 +80,10 @@ export function coworkersOn(dayShifts: Shift[], meId: string | null) {
     coworkers: [...others].sort((a, b) => b[1] - a[1]).map(([memberId, minutes]) => ({ memberId, minutes })),
   };
 }
+
+/** 時間未登録のシフトの説明 (ポイントしたときに出す) */
+export const unknownShiftTitle = (symbol: string) =>
+  `記号「${symbol}」は記号表に無いため、時間が未登録です。記号表に追加すると時間が入ります`;
 
 /** "09:00" -> "9:00" */
 export const shortTime = (t: string) => t.replace(/^0(\d)/, "$1");
