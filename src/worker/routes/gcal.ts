@@ -124,7 +124,7 @@ export const gcalRoutes = new Hono<AppEnv>()
           set: { refreshTokenEnc, status: "active", dirty: 1, lastError: null },
         });
     } catch (e) {
-      console.error("gcal connect failed", e);
+      console.error(`gcal connect failed: ${e instanceof GoogleError ? e.describe() : e instanceof Error ? e.message : String(e)}`);
       return done(c, "error");
     }
     c.executionCtx.waitUntil(syncUser(c.env, userId));

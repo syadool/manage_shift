@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { env, exports } from "cloudflare:workers";
 import { decrypt, encrypt } from "../src/worker/gcal/crypto";
 import { buildEvent, eventId, eventTitle } from "../src/worker/gcal/events";
-import { google, GoogleError, type GEvent } from "../src/worker/gcal/google";
+import { google, GoogleError, RETRY_DELAYS_MS, type GEvent } from "../src/worker/gcal/google";
 import { jstToday, MAX_OPS_PER_SYNC, syncUser } from "../src/worker/gcal/sync";
 import { addDays } from "../src/shared/dates";
 import { call, createUser, ORIGIN } from "./helpers";
@@ -430,5 +430,49 @@ describe("同期", () => {
     const r = await call(u.cookie, "POST", "/shifts", shift(u.me.id, future(1)));
     expect(r.status).toBe(201);
     expect(await conn(u.userId)).toBeNull();
+  });
+});
+
+/* ---------- Google API の呼び出し ---------- */
+
+describe("Google API の呼び出し", () => {
+  const realFetch = globalThis.fetch;
+  const delays = [...RETRY_DELAYS_MS];
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    RETRY_DELAYS_MS.splice(0, RETRY_DELAYS_MS.length, ...delays);
+  });
+  const ev = {
+    id: "abcde",
+    summary: "A",
+    description: "",
+    start: { dateTime: "2026-12-01T09:00:00", timeZone: "Asia/Tokyo" },
+    end: { dateTime: "2026-12-01T17:00:00", timeZone: "Asia/Tokyo" },
+    extendedProperties: { private: {} },
+  };
+  const googleError = (status: number, reason: string, message: string) =>
+    new Response(JSON.stringify({ error: { code: status, message, errors: [{ reason, message }] } }), { status });
+
+  it("回数制限の 403 は待ってやり直す", async () => {
+    RETRY_DELAYS_MS.splice(0, RETRY_DELAYS_MS.length, 0, 0, 0);
+    let n = 0;
+    globalThis.fetch = (async () => {
+      n++;
+      return n < 3 ? googleError(403, "rateLimitExceeded", "Rate Limit Exceeded") : new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    await real.insertEvent("token", "cal", ev);
+    expect(n).toBe(3);
+  });
+
+  it("それ以外の 403 はやり直さず、理由と本文をエラーに含める", async () => {
+    let n = 0;
+    globalThis.fetch = (async () => {
+      n++;
+      return googleError(403, "forbidden", "You need to have writer access to this calendar.");
+    }) as typeof fetch;
+    const e = await real.insertEvent("token", "cal", ev).catch((e: unknown) => e);
+    expect(n).toBe(1);
+    expect(e).toBeInstanceOf(GoogleError);
+    expect((e as GoogleError).describe()).toBe("403 forbidden You need to have writer access to this calendar.");
   });
 });
