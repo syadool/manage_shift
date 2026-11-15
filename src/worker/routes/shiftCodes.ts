@@ -1,9 +1,9 @@
 import { Hono } from "hono";
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, ne } from "drizzle-orm";
 import { shiftCodeInput } from "../../shared/schemas";
 import { normalizeSymbol } from "../../shared/importing";
 import { getDb, type Db } from "../db/client";
-import { shiftCodes } from "../db/schema";
+import { shiftCodes, shifts, unknownShifts } from "../db/schema";
 import { requireAuth } from "../auth/session";
 import { syncAfterWrite } from "../gcal/sync";
 import type { AppEnv } from "../types";
@@ -31,6 +31,70 @@ async function findLooseDuplicate(db: Db, userId: string, symbol: string, exclud
     .where(eq(shiftCodes.userId, userId));
   const key = normalizeSymbol(symbol);
   return rows.find((r) => r.id !== excludeId && normalizeSymbol(r.symbol) === key) ?? null;
+}
+
+type CodeRow = {
+  id: string;
+  symbol: string;
+  isOff: boolean;
+  startTime: string | null;
+  endTime: string | null;
+  breakMinutes: number;
+};
+
+/**
+ * 記号表に無い記号で取り込んでいた時間未登録のシフトのうち、この記号に当たるものを解決する。
+ * 勤務の記号ならシフトに移し (その日に手入力のシフトがあれば移さない)、休みの記号なら消す
+ */
+async function resolveUnknownShifts(db: Db, userId: string, code: CodeRow) {
+  const key = normalizeSymbol(code.symbol);
+  const pending = (
+    await db
+      .select()
+      .from(unknownShifts)
+      .where(eq(unknownShifts.userId, userId))
+  ).filter((u) => normalizeSymbol(u.symbol) === key);
+  if (pending.length === 0) return;
+
+  const works = !code.isOff && code.startTime && code.endTime && code.startTime !== code.endTime;
+  const manual = new Set<string>();
+  if (works) {
+    const dates = [...new Set(pending.map((u) => u.date))];
+    for (let i = 0; i < dates.length; i += 50) {
+      const rows = await db
+        .select({ memberId: shifts.memberId, date: shifts.date })
+        .from(shifts)
+        .where(
+          and(eq(shifts.userId, userId), eq(shifts.source, "manual"), inArray(shifts.date, dates.slice(i, i + 50))),
+        );
+      for (const r of rows) manual.add(`${r.memberId}|${r.date}`);
+    }
+  }
+
+  const statements = [];
+  const ids = pending.map((u) => u.id);
+  for (let i = 0; i < ids.length; i += 50) {
+    statements.push(db.delete(unknownShifts).where(inArray(unknownShifts.id, ids.slice(i, i + 50))));
+  }
+  if (works) {
+    const values = pending
+      .filter((u) => !manual.has(`${u.memberId}|${u.date}`))
+      .map((u) => ({
+        id: crypto.randomUUID(),
+        userId,
+        memberId: u.memberId,
+        date: u.date,
+        shiftCodeId: code.id,
+        startTime: code.startTime!,
+        endTime: code.endTime!,
+        breakMinutes: code.breakMinutes,
+        source: "ocr" as const,
+      }));
+    for (let i = 0; i < values.length; i += 10) {
+      statements.push(db.insert(shifts).values(values.slice(i, i + 10)));
+    }
+  }
+  await db.batch(statements as [(typeof statements)[number], ...typeof statements]);
 }
 
 const looseMessage = (other: string) => `「${other}」と見分けがつかないため登録できません`;
@@ -65,6 +129,7 @@ export const shiftCodeRoutes = new Hono<AppEnv>()
       .values({ id: crypto.randomUUID(), userId, ...input })
       .returning(columns)
       .get();
+    await resolveUnknownShifts(db, userId, row);
     return c.json({ shiftCode: row }, 201);
   })
 
@@ -90,6 +155,7 @@ export const shiftCodeRoutes = new Hono<AppEnv>()
       .returning(columns)
       .get();
     if (!row) return c.json({ error: "not found" }, 404);
+    await resolveUnknownShifts(db, userId, row);
     return c.json({ shiftCode: row });
   })
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Check, Plus } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router";
 import { monthRange } from "../../shared/dates";
-import { matchCode, matchMember, normalizeSymbol, type CommitInput, type Extraction } from "../../shared/importing";
+import { matchCode, matchMember, normalizeSymbol, type CommitInput, type CommittedRow, type Extraction } from "../../shared/importing";
 import { normalizeName } from "../../shared/names";
 import { api, ApiError } from "../lib/api";
 import type { Member, ShiftCode } from "../lib/shiftData";
@@ -29,6 +29,25 @@ function initialRows(result: Extraction, members: Member[]): Row[] {
       target = { type: "new", name: r.name.slice(0, NAME_MAX) };
     }
     return { readName: r.name, target, cells: Object.fromEntries(r.cells.map((c) => [c.day, c.symbol])) };
+  });
+}
+
+/**
+ * 確定済みの取り込みを開き直すときの行。前回の保存先と記号を、読み取った行に順に当てはめる
+ * (前回「取り込まない」にした行は、記録に無いので「取り込まない」にする)
+ */
+function committedRowsToEdit(result: Extraction, committed: CommittedRow[], members: Member[]): Row[] {
+  const rest = [...committed];
+  return result.rows.map((r) => {
+    const i = rest.findIndex((c) => c.readName === r.name);
+    const cells = Object.fromEntries(r.cells.map((c) => [c.day, c.symbol]));
+    if (i < 0) return { readName: r.name, target: { type: "skip" }, cells };
+    const [c] = rest.splice(i, 1);
+    // 保存先のメンバーがその後削除されていたら、名前で照合し直す
+    const target: Target = members.some((m) => m.id === c.memberId)
+      ? { type: "member", memberId: c.memberId, rememberAlias: true }
+      : { type: "new", name: r.name.slice(0, NAME_MAX) };
+    return { readName: r.name, target, cells: Object.fromEntries(c.cells.map((x) => [x.day, x.symbol])) };
   });
 }
 
@@ -111,9 +130,11 @@ function AddCodeInline({ symbol, onAdded }: { symbol: string; onAdded: () => voi
 export function ImportReview() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
-  const imp = useResource<{ import: { status: string; targetMonth: string | null }; result: Extraction | null }>(
-    `/imports/${id}`,
-  );
+  const imp = useResource<{
+    import: { status: string; targetMonth: string | null };
+    result: Extraction | null;
+    committed: CommittedRow[] | null;
+  }>(`/imports/${id}`);
   const membersRes = useResource<{ members: Member[] }>("/members");
   const codesRes = useResource<{ shiftCodes: ShiftCode[] }>("/shift-codes");
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -124,12 +145,14 @@ export function ImportReview() {
   const members = membersRes.data?.members;
   const codes = codesRes.data?.shiftCodes ?? [];
 
+  const isCommitted = imp.data?.import.status === "committed";
+  const committed = imp.data?.committed ?? null;
   useEffect(() => {
     if (result && members && rows === null) {
-      setRows(initialRows(result, members));
-      setYearMonth(result.yearMonth ?? "");
+      setRows(committed ? committedRowsToEdit(result, committed, members) : initialRows(result, members));
+      setYearMonth((isCommitted && imp.data?.import.targetMonth) || result.yearMonth || "");
     }
-  }, [result, members, rows]);
+  }, [result, members, rows, committed, isCommitted, imp.data]);
 
   const days = useMemo(() => (result ? daysOf(yearMonth, result) : []), [yearMonth, result]);
 
@@ -159,7 +182,7 @@ export function ImportReview() {
       />
     );
   }
-  if (imp.data && (imp.data.import.status !== "parsed" || !result)) {
+  if (imp.data && ((imp.data.import.status !== "parsed" && !isCommitted) || !result)) {
     return (
       <p className="text-sm text-ink-500">
         この取り込みは確認できません。
@@ -216,7 +239,7 @@ export function ImportReview() {
     if (ok) navigate(`/?m=${yearMonth}`);
   };
 
-  const ready = /^\d{4}-\d{2}$/.test(yearMonth) && unknownSymbols.length === 0;
+  const ready = /^\d{4}-\d{2}$/.test(yearMonth);
 
   return (
     <div>
@@ -238,6 +261,11 @@ export function ImportReview() {
               </Field>
             </div>
           </div>
+          {isCommitted && (
+            <Hint>
+              保存済みの取り込みです。名前の割り当てや記号を直して保存すると、この取り込みで保存したシフトを置き換えます（手入力したシフトは残ります）
+            </Hint>
+          )}
           {!yearMonth && <Hint>年月を読み取れませんでした。入力してください</Hint>}
           {result.notes && <Hint>読み取りメモ: {result.notes}</Hint>}
 
@@ -310,9 +338,10 @@ export function ImportReview() {
                               maxLength={8}
                               disabled={skipped}
                               onChange={(e) => setCell(i, d, e.target.value)}
+                              title={unknown ? `記号表に無い記号です。時間未登録のシフトとして保存されます` : undefined}
                               className={`mt-1 h-4 w-5 rounded-sm text-center text-sm outline-none focus:ring-1 focus:ring-ink-900 ${
                                 unknown
-                                  ? "bg-ink-900 text-white"
+                                  ? "bg-ink-100 text-ink-500"
                                   : code?.isOff
                                     ? "bg-white text-ink-300"
                                     : "bg-white text-ink-900"
@@ -335,7 +364,9 @@ export function ImportReview() {
                   <AddCodeInline key={s} symbol={s} onAdded={codesRes.reload} />
                 ))}
               </div>
-              <Hint>記号表に追加するか、表のセルを書き直してください</Hint>
+              <Hint>
+                記号表に追加すると時間が入ります。追加しなくても、時間未登録のシフト（薄いグレー）として保存でき、あとで記号表に追加すると時間が入ります
+              </Hint>
             </Section>
           )}
 
