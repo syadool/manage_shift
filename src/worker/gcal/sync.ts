@@ -187,9 +187,13 @@ export async function syncUser(env: Env, userId: string, now = Date.now()): Prom
     }
     return { ok: true, ...counts, remaining };
   } catch (e) {
-    console.error("gcal sync failed", e);
+    // 原因を調べられるよう、Google の返したエラーの理由と本文を文字列でログに残す
+    const detail = e instanceof GoogleError ? e.describe() : e instanceof Error ? e.message : String(e);
+    console.error(`gcal sync failed: ${detail}`);
     const error =
-      e instanceof GoogleError ? `Google カレンダーへの反映に失敗しました (${e.status})` : "Google カレンダーへの反映に失敗しました";
+      e instanceof GoogleError
+        ? `Google カレンダーへの反映に失敗しました (${e.describe()})`.slice(0, 300)
+        : "Google カレンダーへの反映に失敗しました";
     await db.update(gcalConnections).set({ lastError: error }).where(where);
     return { ok: false, error };
   }

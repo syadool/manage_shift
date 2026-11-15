@@ -18,10 +18,24 @@ export class GoogleError extends Error {
     /** OAuth のエラーコード (invalid_grant など) */
     public code: string | null,
     message: string,
+    /** Calendar API のエラー理由 (rateLimitExceeded など) */
+    public reason: string | null = null,
   ) {
     super(message);
   }
+
+  /** ログ・画面に出す要約 */
+  describe(): string {
+    return [this.status, this.reason ?? this.code, this.message].filter(Boolean).join(" ");
+  }
 }
+
+/** 待てば通る (回数制限) エラーの理由 */
+const RATE_LIMIT_REASONS = new Set(["rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded"]);
+/** 回数制限のときにやり直すまでの待ち時間 (ミリ秒) */
+export const RETRY_DELAYS_MS = [1000, 2000, 4000];
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export type GEventTime = { dateTime: string; timeZone: string };
 export type GEvent = {
@@ -41,21 +55,36 @@ export type GListedEvent = {
 
 type Creds = { clientId: string; clientSecret: string };
 
-async function request<T>(url: string, init: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
-  if (res.status === 204) return undefined as T;
-  const text = await res.text();
-  const data = text ? (JSON.parse(text) as Record<string, unknown>) : {};
-  if (!res.ok) {
-    const err = data.error;
-    const code = typeof err === "string" ? err : null;
-    const message =
-      (typeof err === "object" && err && "message" in err ? String(err.message) : null) ??
-      (typeof data.error_description === "string" ? data.error_description : null) ??
-      `Google API error ${res.status}`;
-    throw new GoogleError(res.status, code, message);
+function toError(status: number, text: string): GoogleError {
+  let data: Record<string, unknown> = {};
+  try {
+    data = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  } catch {
+    // JSON 以外の応答
   }
-  return data as T;
+  const err = data.error;
+  const code = typeof err === "string" ? err : null;
+  const obj = typeof err === "object" && err ? (err as { message?: unknown; status?: unknown; errors?: { reason?: unknown }[] }) : null;
+  const reason = obj?.errors?.[0]?.reason ?? obj?.status;
+  const message =
+    (obj && typeof obj.message === "string" ? obj.message : null) ??
+    (typeof data.error_description === "string" ? data.error_description : null) ??
+    (text.slice(0, 200) || `Google API error ${status}`);
+  return new GoogleError(status, code, message, typeof reason === "string" ? reason : null);
+}
+
+/** 回数制限 (429、または理由が回数制限の 403) のときは、少し待ってやり直す */
+async function request<T>(url: string, init: RequestInit): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, init);
+    if (res.status === 204) return undefined as T;
+    const text = await res.text();
+    if (res.ok) return (text ? JSON.parse(text) : {}) as T;
+    const error = toError(res.status, text);
+    const rateLimited = res.status === 429 || (res.status === 403 && RATE_LIMIT_REASONS.has(error.reason ?? ""));
+    if (!rateLimited || attempt >= RETRY_DELAYS_MS.length) throw error;
+    await sleep(RETRY_DELAYS_MS[attempt]);
+  }
 }
 
 const api = <T>(accessToken: string, method: string, path: string, body?: unknown) =>
