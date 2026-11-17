@@ -51,8 +51,12 @@ function DayView({ date }: { date: string }) {
     if (ok) reloadShifts();
   };
   const mine = dayShifts.filter((s) => s.memberId === me?.id);
+  // 早い時間帯から並べる。開始が同じなら自分を先に、次に早く終わる順
   const rows = [...dayShifts].sort(
-    (a, b) => Number(b.memberId === me?.id) - Number(a.memberId === me?.id) || span(a)[0] - span(b)[0],
+    (a, b) =>
+      span(a)[0] - span(b)[0] ||
+      Number(b.memberId === me?.id) - Number(a.memberId === me?.id) ||
+      span(a)[1] - span(b)[1],
   );
   const [lo, hi] = hourRange(dayShifts);
   const pct = (min: number) => ((min - lo * 60) / ((hi - lo) * 60)) * 100;
